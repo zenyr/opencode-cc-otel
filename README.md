@@ -1,21 +1,44 @@
 # @zenyr/opencode-cc-telemetry
 
-OpenCode telemetry plugin project.
-
-현재 저장소는 **foundation stage**입니다. 목표는 OpenCode plugin interface에 맞는 telemetry 수집/정규화/전송 구조를 안정적으로 제공하는 것입니다.
+OpenCode telemetry plugin monorepo.
 
 ## What this is
 
-- OpenCode plugin용 telemetry 패키지
-- Bun + Turbo 기반 모노레포
-- hexagonal architecture 기반 패키지 분리
-- 배포 대상은 `opencode-cc-telemetry` (`packages/main`) 1개
+- Telemetry packages for OpenCode plugins
+- Bun + Turbo monorepo
+- Hexagonal boundaries: `domain` -> `application` -> `adapters` -> `main`
+- Single deployable package: `opencode-cc-telemetry` (`packages/main`)
 
 ## Current status
 
-- plugin hook 보일러플레이트 구성 완료
-- domain/application/adapters/main 패키지 경계 분리 완료
-- core scaffold 기준 빌드/테스트 통과
+- Shared event-name contracts live in `packages/domain`
+- Application layer supports deterministic buffering + explicit flush
+- Adapters provide console, in-memory, and HTTP sinks
+- Main package wires OpenCode hooks to the telemetry pipeline
+
+## Runtime env
+
+- `OPENCODE_TELEMETRY_SINK`: `console` or `http`
+- `OPENCODE_TELEMETRY_HTTP_ENDPOINT`: required when sink is `http`
+- `OPENCODE_TELEMETRY_HTTP_TOKEN`: optional bearer token for HTTP sink
+- `OPENCODE_TELEMETRY_HTTP_MAX_ATTEMPTS`: retry cap, default `8`
+- `OPENCODE_TELEMETRY_HTTP_BACKOFF_MS`: base backoff, default `500`
+- `OPENCODE_TELEMETRY_MAX_BATCH_SIZE`: app buffer size, default `1`
+- `OPENCODE_TELEMETRY_FLUSH_INTERVAL_MS`: reserved policy value, default `0`
+
+## Operational behavior
+
+- Valid events are normalized in `packages/domain`; invalid names/timestamps fail fast
+- Application buffering keeps data in memory until publish succeeds
+- HTTP sink retries transient failures with quadratic backoff: `baseMs * attempts^2`
+- Default runtime stays synchronous and safe: one event per publish, no background daemon
+
+## Verify
+
+```bash
+bun test
+bun run build
+```
 
 ## Notable Reference
 
