@@ -412,6 +412,29 @@ test("createTelemetrySinkFromEnv selects http sink from env", () => {
   expect(sink.constructor.name).toBe("HttpTelemetrySink");
 });
 
+test("createTelemetrySinkFromEnv selects routing sink for provider endpoints", () => {
+  const sink = createTelemetrySinkFromEnv({
+    OPENCODE_TELEMETRY_SINK: "http",
+    OPENCODE_TELEMETRY_HTTP_ENDPOINT: "https://telemetry.example.test/default",
+    OPENCODE_TELEMETRY_HTTP_ENDPOINT_ANTHROPIC:
+      "https://telemetry.example.test/anthropic",
+    OPENCODE_TELEMETRY_HTTP_ENDPOINT_OPENAI:
+      "https://telemetry.example.test/openai",
+  });
+
+  expect(sink.constructor.name).toBe("RoutingTelemetrySink");
+});
+
+test("createTelemetrySinkFromEnv allows provider-only routing config", () => {
+  const sink = createTelemetrySinkFromEnv({
+    OPENCODE_TELEMETRY_SINK: "http",
+    OPENCODE_TELEMETRY_HTTP_ENDPOINT_ANTHROPIC:
+      "https://telemetry.example.test/anthropic",
+  });
+
+  expect(sink.constructor.name).toBe("RoutingTelemetrySink");
+});
+
 test("createTelemetrySinkFromEnv selects otel json sink from env", () => {
   const sink = createTelemetrySinkFromEnv({
     OPENCODE_TELEMETRY_SINK: "otel-json",

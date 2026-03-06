@@ -5,6 +5,7 @@ import {
   FanoutTelemetrySink,
   HttpTelemetrySink,
   OTelJsonSink,
+  RoutingTelemetrySink,
   resolveLanguageFromPath,
 } from "@zenyr/telemetry-adapters";
 import {
@@ -205,6 +206,57 @@ const resolveBufferPolicy = (env: EnvProvider): Partial<TelemetryBufferPolicy> =
   };
 };
 
+const HTTP_ENDPOINT_PREFIX = "OPENCODE_TELEMETRY_HTTP_ENDPOINT_";
+
+const providerKeyFromEnvSuffix = (suffix: string): string => {
+  return suffix.toLowerCase().replaceAll("_", "-");
+};
+
+const buildHttpSink = (env: EnvProvider, endpoint: string, suffix = ""): HttpTelemetrySink => {
+  const tokenKey = suffix
+    ? `OPENCODE_TELEMETRY_HTTP_TOKEN_${suffix}`
+    : "OPENCODE_TELEMETRY_HTTP_TOKEN";
+
+  return new HttpTelemetrySink({
+    endpoint,
+    token: env[tokenKey],
+    maxAttempts: readInt(env.OPENCODE_TELEMETRY_HTTP_MAX_ATTEMPTS, 8),
+    backoffMs: readInt(env.OPENCODE_TELEMETRY_HTTP_BACKOFF_MS, 500),
+  });
+};
+
+const buildHttpRoutingSink = (env: EnvProvider): TelemetrySinkPort => {
+  const fallbackEndpoint = env.OPENCODE_TELEMETRY_HTTP_ENDPOINT;
+  const rules = Object.entries(env)
+    .filter(
+      ([key, value]) =>
+        key.startsWith(HTTP_ENDPOINT_PREFIX) &&
+        key !== "OPENCODE_TELEMETRY_HTTP_ENDPOINT" &&
+        Boolean(value),
+    )
+    .map(([key, endpoint]) => {
+      const suffix = key.slice(HTTP_ENDPOINT_PREFIX.length);
+
+      return {
+        provider: providerKeyFromEnvSuffix(suffix),
+        sink: buildHttpSink(env, endpoint ?? "", suffix),
+      };
+    });
+
+  if (rules.length === 0) {
+    if (!fallbackEndpoint) {
+      throw new Error("OPENCODE_TELEMETRY_HTTP_ENDPOINT req for http sink");
+    }
+
+    return buildHttpSink(env, fallbackEndpoint);
+  }
+
+  return new RoutingTelemetrySink({
+    rules,
+    fallback: fallbackEndpoint ? buildHttpSink(env, fallbackEndpoint) : undefined,
+  });
+};
+
 const withDurabilityFromEnv = (
   sink: TelemetrySinkPort,
   env: EnvProvider,
@@ -252,18 +304,9 @@ export const createTelemetrySinkFromEnv = (
   }
 
   if (sinkType === "http") {
-    if (!env.OPENCODE_TELEMETRY_HTTP_ENDPOINT) {
-      throw new Error("OPENCODE_TELEMETRY_HTTP_ENDPOINT req for http sink");
-    }
-
     return withDurabilityFromEnv(
       withFanoutFromEnv(
-        new HttpTelemetrySink({
-          endpoint: env.OPENCODE_TELEMETRY_HTTP_ENDPOINT,
-          token: env.OPENCODE_TELEMETRY_HTTP_TOKEN,
-          maxAttempts: readInt(env.OPENCODE_TELEMETRY_HTTP_MAX_ATTEMPTS, 8),
-          backoffMs: readInt(env.OPENCODE_TELEMETRY_HTTP_BACKOFF_MS, 500),
-        }),
+        buildHttpRoutingSink(env),
         env,
       ),
       env,
