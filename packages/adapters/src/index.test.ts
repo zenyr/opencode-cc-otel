@@ -246,11 +246,11 @@ test("RoutingTelemetrySink groups events by provider", async () => {
     fallback,
     rules: [
       {
-        provider: "anthropic",
+        match: (event) => event.attributes.provider === "anthropic",
         sink: anthropic,
       },
       {
-        provider: "openai",
+        match: (event) => event.attributes.provider === "openai",
         sink: openai,
       },
     ],
@@ -293,7 +293,7 @@ test("RoutingTelemetrySink fails when route missing and no fallback", async () =
   const sink = new RoutingTelemetrySink({
     rules: [
       {
-        provider: "anthropic",
+        match: (event) => event.attributes.provider === "anthropic",
         sink: new InMemoryTelemetrySink(),
       },
     ],
@@ -308,8 +308,35 @@ test("RoutingTelemetrySink fails when route missing and no fallback", async () =
   });
 
   await expect(sink.publish([event])).rejects.toThrow(
-    "RoutingTelemetrySink route missing for provider: openai",
+    "RoutingTelemetrySink route missing for event",
   );
+});
+
+test("RoutingTelemetrySink supports prefix matching", async () => {
+  const sinkTarget = new InMemoryTelemetrySink();
+  const sink = new RoutingTelemetrySink({
+    rules: [
+      {
+        match: (event) =>
+          typeof event.attributes.provider === "string" &&
+          event.attributes.provider.startsWith("openrouter/"),
+        sink: sinkTarget,
+      },
+    ],
+  });
+  const event = createTelemetryRecord({
+    name: TELEMETRY_EVENT_NAMES.apiRequest,
+    nowMs: 6,
+    sessionId: "session-1",
+    attributes: {
+      provider: "openrouter/openai",
+      model: "gpt-5",
+    },
+  });
+
+  await sink.publish([event]);
+
+  expect(sinkTarget.drain()).toEqual([event]);
 });
 
 test("createNormalizedTelemetryEnvelope stringifies mixed attrs", () => {
