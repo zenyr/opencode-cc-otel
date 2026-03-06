@@ -24,6 +24,15 @@ test("TELEMETRY_EVENT_NAMES exposes shared event constants", () => {
     "opencode.tool.execute.after",
   );
   expect(TELEMETRY_EVENT_NAMES.permissionAsk).toBe("opencode.permission.ask");
+  expect(TELEMETRY_EVENT_NAMES.apiRequest).toBe("opencode.api.request");
+  expect(TELEMETRY_EVENT_NAMES.sessionDiff).toBe("opencode.session.diff");
+  expect(TELEMETRY_EVENT_NAMES.commandExecuted).toBe("opencode.command.executed");
+  expect(TELEMETRY_EVENT_NAMES.fileEdited).toBe("opencode.file.edited");
+  expect(TELEMETRY_EVENT_NAMES.gitOperation).toBe("opencode.git.operation");
+  expect(TELEMETRY_EVENT_NAMES.sessionCreated).toBe("opencode.session.created");
+  expect(TELEMETRY_EVENT_NAMES.sessionError).toBe("opencode.session.error");
+  expect(TELEMETRY_EVENT_NAMES.sessionIdle).toBe("opencode.session.idle");
+  expect(TELEMETRY_EVENT_NAMES.sessionStatus).toBe("opencode.session.status");
 });
 
 test("createTelemetryRecord builds normalized payload", () => {
@@ -68,4 +77,20 @@ test("createTelemetryAttributes rejects invalid timestamp source", () => {
       timestampSource: "wall-clock" as "clock",
     });
   }).toThrow("Telemetry timestampSource invalid");
+});
+
+test("createTelemetryAttributes rejects invalid durationMs", () => {
+  expect(() => {
+    createTelemetryAttributes({
+      durationMs: -1,
+    });
+  }).toThrow("Telemetry durationMs invalid");
+});
+
+test("createTelemetryAttributes rejects non-primitive attr values", () => {
+  expect(() => {
+    createTelemetryAttributes({
+      custom: { nested: true } as unknown as string,
+    });
+  }).toThrow("Telemetry attribute invalid: custom");
 });

@@ -1,3 +1,4 @@
+import { mkdir, readdir, rm } from "node:fs/promises";
 import type { TelemetrySinkPort } from "@zenyr/telemetry-application";
 import type { TelemetryRecord } from "@zenyr/telemetry-domain";
 
@@ -16,9 +17,36 @@ export type HttpTelemetrySinkOptions = {
   sleep?: (durationMs: number) => Promise<void>;
 };
 
+export type DurableTelemetrySinkOptions = {
+  sink: TelemetrySinkPort;
+  queueDir: string;
+  nowMs?: () => number;
+  randomId?: () => string;
+};
+
+export type FanoutTelemetrySinkOptions = {
+  sinks: TelemetrySinkPort[];
+};
+
+export type OTelJsonSinkOptions = {
+  write?: (payload: string) => Promise<void> | void;
+  serviceName?: string;
+  serviceVersion?: string;
+  channelId?: string;
+  nowSequence?: () => number;
+};
+
+export type NormalizedTelemetryEnvelope = {
+  body: string;
+  attributes: Record<string, string>;
+};
+
 const DEFAULT_HTTP_MAX_ATTEMPTS = 8;
 const DEFAULT_HTTP_BACKOFF_MS = 500;
 const DEFAULT_HTTP_MAX_BACKOFF_MS = 30_000;
+const DEFAULT_OTEL_CHANNEL_ID = "otel_3p_logs";
+const DEFAULT_OTEL_SERVICE_NAME = "opencode-cc";
+const DEFAULT_OTEL_SERVICE_VERSION = "0.1.0";
 
 const FILE_LANGUAGE_MAP = new Map<string, string>([
   [".ts", "typescript"],
@@ -29,6 +57,14 @@ const FILE_LANGUAGE_MAP = new Map<string, string>([
   [".go", "go"],
   [".rs", "rust"],
 ]);
+
+const queueFilePath = (queueDir: string, fileName: string): string => {
+  return `${queueDir}/${fileName}`;
+};
+
+const sortQueueFiles = (fileNames: string[]): string[] => {
+  return [...fileNames].sort((left, right) => left.localeCompare(right));
+};
 
 const isRetryableStatus = (status: number): boolean => {
   return status === 408 || status === 429 || status >= 500;
@@ -45,6 +81,45 @@ const backoffForAttempt = (
   maxBackoffMs: number,
 ): number => {
   return Math.min(backoffMs * attempt * attempt, maxBackoffMs);
+};
+
+const stringifyAttributeValue = (value: TelemetryRecord["attributes"][string]): string => {
+  return String(value);
+};
+
+export const createNormalizedTelemetryEnvelope = (
+  event: TelemetryRecord,
+  options: {
+    channelId?: string;
+    sequence?: number;
+    serviceName?: string;
+    serviceVersion?: string;
+  } = {},
+): NormalizedTelemetryEnvelope => {
+  const attributes: Record<string, string> = {
+    "channel.id": options.channelId ?? DEFAULT_OTEL_CHANNEL_ID,
+    "event.name": event.name,
+    "event.timestamp": event.timestamp,
+    "service.name": options.serviceName ?? DEFAULT_OTEL_SERVICE_NAME,
+    "service.version": options.serviceVersion ?? DEFAULT_OTEL_SERVICE_VERSION,
+  };
+
+  if (event.sessionId) {
+    attributes["session.id"] = event.sessionId;
+  }
+
+  if (options.sequence !== undefined) {
+    attributes["event.sequence"] = String(options.sequence);
+  }
+
+  for (const [key, value] of Object.entries(event.attributes)) {
+    attributes[key] = stringifyAttributeValue(value);
+  }
+
+  return {
+    body: event.name,
+    attributes,
+  };
 };
 
 export class ConsoleTelemetrySink implements TelemetrySinkPort {
@@ -152,6 +227,130 @@ export class HttpTelemetrySink implements TelemetrySinkPort {
     throw new Error(
       `HttpTelemetrySink failed after ${this.#maxAttempts} attempts: ${lastError?.message ?? "unknown"}`,
     );
+  }
+}
+
+export class DurableTelemetrySink implements TelemetrySinkPort {
+  #sink: TelemetrySinkPort;
+  #queueDir: string;
+  #nowMs: () => number;
+  #randomId: () => string;
+
+  constructor(options: DurableTelemetrySinkOptions) {
+    if (!options.queueDir) {
+      throw new Error("DurableTelemetrySink queueDir req");
+    }
+
+    this.#sink = options.sink;
+    this.#queueDir = options.queueDir;
+    this.#nowMs = options.nowMs ?? (() => Date.now());
+    this.#randomId =
+      options.randomId ?? (() => Math.random().toString(36).slice(2, 10));
+  }
+
+  async publish(events: TelemetryRecord[]): Promise<void> {
+    if (events.length === 0) {
+      return;
+    }
+
+    await this.#ensureQueueDir();
+    await this.#replayQueuedBatches();
+
+    try {
+      await this.#sink.publish(events);
+    } catch (error) {
+      await this.#enqueue(events);
+      throw error;
+    }
+  }
+
+  async flushQueued(): Promise<void> {
+    await this.#ensureQueueDir();
+    await this.#replayQueuedBatches();
+  }
+
+  async #ensureQueueDir(): Promise<void> {
+    await mkdir(this.#queueDir, { recursive: true });
+  }
+
+  async #readQueueFileNames(): Promise<string[]> {
+    const entries = await readdir(this.#queueDir, { withFileTypes: true });
+    return sortQueueFiles(
+      entries
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+        .map((entry) => entry.name),
+    );
+  }
+
+  async #enqueue(events: TelemetryRecord[]): Promise<void> {
+    const fileName = `${this.#nowMs()}-${this.#randomId()}.json`;
+    const filePath = queueFilePath(this.#queueDir, fileName);
+    await Bun.write(filePath, JSON.stringify({ events }));
+  }
+
+  async #replayQueuedBatches(): Promise<void> {
+    for (const fileName of await this.#readQueueFileNames()) {
+      const filePath = queueFilePath(this.#queueDir, fileName);
+      const payload = (await Bun.file(filePath).json()) as {
+        events?: TelemetryRecord[];
+      };
+      const events = Array.isArray(payload.events) ? payload.events : [];
+
+      if (events.length === 0) {
+        await rm(filePath, { force: true });
+        continue;
+      }
+
+      await this.#sink.publish(events);
+      await rm(filePath, { force: true });
+    }
+  }
+}
+
+export class FanoutTelemetrySink implements TelemetrySinkPort {
+  #sinks: TelemetrySinkPort[];
+
+  constructor(options: FanoutTelemetrySinkOptions) {
+    if (options.sinks.length === 0) {
+      throw new Error("FanoutTelemetrySink sinks req");
+    }
+
+    this.#sinks = options.sinks;
+  }
+
+  async publish(events: TelemetryRecord[]): Promise<void> {
+    for (const sink of this.#sinks) {
+      await sink.publish(events);
+    }
+  }
+}
+
+export class OTelJsonSink implements TelemetrySinkPort {
+  #write: (payload: string) => Promise<void> | void;
+  #serviceName: string;
+  #serviceVersion: string;
+  #channelId: string;
+  #nowSequence: () => number;
+
+  constructor(options: OTelJsonSinkOptions = {}) {
+    this.#write = options.write ?? ((payload) => console.log(payload));
+    this.#serviceName = options.serviceName ?? DEFAULT_OTEL_SERVICE_NAME;
+    this.#serviceVersion = options.serviceVersion ?? DEFAULT_OTEL_SERVICE_VERSION;
+    this.#channelId = options.channelId ?? DEFAULT_OTEL_CHANNEL_ID;
+    this.#nowSequence = options.nowSequence ?? (() => Date.now());
+  }
+
+  async publish(events: TelemetryRecord[]): Promise<void> {
+    for (const event of events) {
+      const payload = createNormalizedTelemetryEnvelope(event, {
+        channelId: this.#channelId,
+        sequence: this.#nowSequence(),
+        serviceName: this.#serviceName,
+        serviceVersion: this.#serviceVersion,
+      });
+
+      await this.#write(JSON.stringify(payload));
+    }
   }
 }
 

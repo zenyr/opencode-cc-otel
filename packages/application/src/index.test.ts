@@ -103,3 +103,38 @@ test("TelemetryService flushes automatically at maxBatchSize", async () => {
     TELEMETRY_EVENT_NAMES.toolExecuteAfter,
   ]);
 });
+
+test("TelemetryService flush is no-op for empty buffer", async () => {
+  const publishedBatches: TelemetryRecord[][] = [];
+
+  const service = new TelemetryService({
+    sink: {
+      async publish(events) {
+        publishedBatches.push(events);
+      },
+    },
+    clock: {
+      nowMs: () => 1,
+    },
+  });
+
+  await service.flush();
+
+  expect(publishedBatches).toEqual([]);
+});
+
+test("TelemetryService rejects invalid buffer policy", () => {
+  expect(() => {
+    new TelemetryService({
+      sink: {
+        async publish() {},
+      },
+      clock: {
+        nowMs: () => 1,
+      },
+      bufferPolicy: {
+        maxBatchSize: 0,
+      },
+    });
+  }).toThrow("Telemetry maxBatchSize invalid");
+});

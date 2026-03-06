@@ -1,9 +1,20 @@
 export type TelemetryAttributeValue = string | number | boolean;
 
 export const TELEMETRY_EVENT_NAMES = {
+  apiError: "opencode.api.error",
+  apiRequest: "opencode.api.request",
+  chatMessage: "opencode.chat.message",
+  commandExecuted: "opencode.command.executed",
   configLoaded: "opencode.config.loaded",
   eventReceived: "opencode.event.received",
+  fileEdited: "opencode.file.edited",
+  gitOperation: "opencode.git.operation",
   permissionAsk: "opencode.permission.ask",
+  sessionCreated: "opencode.session.created",
+  sessionDiff: "opencode.session.diff",
+  sessionError: "opencode.session.error",
+  sessionIdle: "opencode.session.idle",
+  sessionStatus: "opencode.session.status",
   commandExecuteBefore: "opencode.command.execute.before",
   toolExecuteBefore: "opencode.tool.execute.before",
   toolExecuteAfter: "opencode.tool.execute.after",
@@ -15,22 +26,45 @@ export type TelemetryEventName =
 export type TelemetryTimestampSource = "clock" | "hook";
 
 export type TelemetryKnownAttributes = {
+  additions?: number;
+  agent?: string;
   arguments?: string;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
   callId?: string;
   command?: string;
+  completedAtMs?: number;
+  costUsd?: number;
+  deletions?: number;
   directory?: string;
   durationMs?: number;
+  errorName?: string;
+  errorMessage?: string;
   eventType?: string;
   filePath?: string;
+  files?: number;
   hasModel?: boolean;
+  inputTokens?: number;
   isGitCommit?: boolean;
   isGitPrCreate?: boolean;
   language?: string;
+  messageId?: string;
+  model?: string;
+  operation?: string;
+  outputTokens?: number;
   permission?: string;
+  promptLength?: number;
+  provider?: string;
+  reasoningTokens?: number;
+  statusCode?: number;
   status?: string;
+  success?: boolean;
+  nextRetryDelayMs?: number;
+  retryAttempt?: number;
   timestampSource?: TelemetryTimestampSource;
   title?: string;
   tool?: string;
+  variant?: string;
   worktree?: string;
 };
 
