@@ -12,6 +12,7 @@ import {
   HttpTelemetrySink,
   InMemoryTelemetrySink,
   OTelJsonSink,
+  RoutingTelemetrySink,
   resolveLanguageFromPath,
 } from "./index";
 
@@ -235,6 +236,80 @@ test("OTelJsonSink writes one normalized payload per event", async () => {
       tool: "edit",
     },
   });
+});
+
+test("RoutingTelemetrySink groups events by provider", async () => {
+  const anthropic = new InMemoryTelemetrySink();
+  const openai = new InMemoryTelemetrySink();
+  const fallback = new InMemoryTelemetrySink();
+  const sink = new RoutingTelemetrySink({
+    fallback,
+    rules: [
+      {
+        provider: "anthropic",
+        sink: anthropic,
+      },
+      {
+        provider: "openai",
+        sink: openai,
+      },
+    ],
+  });
+  const defaultEvent = createTelemetryRecord({
+    name: TELEMETRY_EVENT_NAMES.commandExecuted,
+    nowMs: 2,
+    sessionId: "session-1",
+    attributes: {
+      command: "git",
+    },
+  });
+  const anthropicEvent = createTelemetryRecord({
+    name: TELEMETRY_EVENT_NAMES.apiRequest,
+    nowMs: 3,
+    sessionId: "session-1",
+    attributes: {
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+    },
+  });
+  const openaiEvent = createTelemetryRecord({
+    name: TELEMETRY_EVENT_NAMES.apiRequest,
+    nowMs: 4,
+    sessionId: "session-1",
+    attributes: {
+      provider: "openai",
+      model: "gpt-5",
+    },
+  });
+
+  await sink.publish([anthropicEvent, defaultEvent, openaiEvent]);
+
+  expect(anthropic.drain()).toEqual([anthropicEvent]);
+  expect(openai.drain()).toEqual([openaiEvent]);
+  expect(fallback.drain()).toEqual([defaultEvent]);
+});
+
+test("RoutingTelemetrySink fails when route missing and no fallback", async () => {
+  const sink = new RoutingTelemetrySink({
+    rules: [
+      {
+        provider: "anthropic",
+        sink: new InMemoryTelemetrySink(),
+      },
+    ],
+  });
+  const event = createTelemetryRecord({
+    name: TELEMETRY_EVENT_NAMES.apiRequest,
+    nowMs: 5,
+    sessionId: "session-1",
+    attributes: {
+      provider: "openai",
+    },
+  });
+
+  await expect(sink.publish([event])).rejects.toThrow(
+    "RoutingTelemetrySink route missing for provider: openai",
+  );
 });
 
 test("createNormalizedTelemetryEnvelope stringifies mixed attrs", () => {

@@ -36,6 +36,16 @@ export type OTelJsonSinkOptions = {
   nowSequence?: () => number;
 };
 
+export type RoutingTelemetryRule = {
+  provider: string;
+  sink: TelemetrySinkPort;
+};
+
+export type RoutingTelemetrySinkOptions = {
+  rules: RoutingTelemetryRule[];
+  fallback?: TelemetrySinkPort;
+};
+
 export type NormalizedTelemetryEnvelope = {
   body: string;
   attributes: Record<string, string>;
@@ -85,6 +95,11 @@ const backoffForAttempt = (
 
 const stringifyAttributeValue = (value: TelemetryRecord["attributes"][string]): string => {
   return String(value);
+};
+
+const providerFromEvent = (event: TelemetryRecord): string | undefined => {
+  const provider = event.attributes.provider;
+  return typeof provider === "string" && provider ? provider : undefined;
 };
 
 export const createNormalizedTelemetryEnvelope = (
@@ -351,6 +366,65 @@ export class OTelJsonSink implements TelemetrySinkPort {
 
       await this.#write(JSON.stringify(payload));
     }
+  }
+}
+
+export class RoutingTelemetrySink implements TelemetrySinkPort {
+  #fallback?: TelemetrySinkPort;
+  #rules: Map<string, TelemetrySinkPort>;
+
+  constructor(options: RoutingTelemetrySinkOptions) {
+    if (options.rules.length === 0) {
+      throw new Error("RoutingTelemetrySink rules req");
+    }
+
+    this.#fallback = options.fallback;
+    this.#rules = new Map(
+      options.rules.map((rule) => [rule.provider, rule.sink]),
+    );
+  }
+
+  async publish(events: TelemetryRecord[]): Promise<void> {
+    if (events.length === 0) {
+      return;
+    }
+
+    const grouped = new Map<TelemetrySinkPort, TelemetryRecord[]>();
+
+    for (const event of events) {
+      const sink = this.#route(event);
+      const batch = grouped.get(sink);
+
+      if (batch) {
+        batch.push(event);
+        continue;
+      }
+
+      grouped.set(sink, [event]);
+    }
+
+    for (const [sink, batch] of grouped) {
+      await sink.publish(batch);
+    }
+  }
+
+  #route(event: TelemetryRecord): TelemetrySinkPort {
+    const provider = providerFromEvent(event);
+
+    if (provider) {
+      const sink = this.#rules.get(provider);
+      if (sink) {
+        return sink;
+      }
+    }
+
+    if (this.#fallback) {
+      return this.#fallback;
+    }
+
+    throw new Error(
+      `RoutingTelemetrySink route missing for provider: ${provider ?? "default"}`,
+    );
   }
 }
 
