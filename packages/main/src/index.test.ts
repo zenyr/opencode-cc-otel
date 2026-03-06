@@ -3,7 +3,12 @@ import { expect, test } from "bun:test";
 import type { PluginInput } from "@opencode-ai/plugin";
 import { InMemoryTelemetrySink } from "@zenyr/telemetry-adapters";
 import { TELEMETRY_EVENT_NAMES } from "@zenyr/telemetry-domain";
-import { createOpencodeHooks, createTelemetrySinkFromEnv } from "./index";
+import {
+  createOpencodeHooks,
+  createTelemetrySinkFromEnv,
+  loadTelemetryConfig,
+  parseJsoncObject,
+} from "./index";
 
 class ReplayableInMemorySink extends InMemoryTelemetrySink {
   replayed = false;
@@ -412,24 +417,97 @@ test("createTelemetrySinkFromEnv selects http sink from env", () => {
   expect(sink.constructor.name).toBe("HttpTelemetrySink");
 });
 
-test("createTelemetrySinkFromEnv selects routing sink for provider endpoints", () => {
-  const sink = createTelemetrySinkFromEnv({
-    OPENCODE_TELEMETRY_SINK: "http",
-    OPENCODE_TELEMETRY_HTTP_ENDPOINT: "https://telemetry.example.test/default",
-    OPENCODE_TELEMETRY_HTTP_ENDPOINT_ANTHROPIC:
-      "https://telemetry.example.test/anthropic",
-    OPENCODE_TELEMETRY_HTTP_ENDPOINT_OPENAI:
-      "https://telemetry.example.test/openai",
+test("parseJsoncObject parses JSONC without stripping URLs", () => {
+  expect(
+    parseJsoncObject<{ http: { default: { endpoint: string } } }>(`{
+      // top comment
+      "http": {
+        "default": {
+          "endpoint": "https://telemetry.example.test/default" /* inline */
+        }
+      }
+    }`),
+  ).toEqual({
+    http: {
+      default: {
+        endpoint: "https://telemetry.example.test/default",
+      },
+    },
   });
-
-  expect(sink.constructor.name).toBe("RoutingTelemetrySink");
 });
 
-test("createTelemetrySinkFromEnv allows provider-only routing config", () => {
+test("loadTelemetryConfig reads XDG JSONC config", async () => {
+  const configRoot = `/tmp/opencode-telemetry-config-${Date.now()}`;
+  const configPath = `${configRoot}/opencode/telemetry.jsonc`;
+
+  await Bun.write(
+    configPath,
+    `{
+      "http": {
+        "default": {
+          "endpoint": "https://telemetry.example.test/default",
+          "token": "env:OPENCODE_TELEMETRY_HTTP_TOKEN"
+        },
+        "routes": [
+          {
+            "match": {
+              "providerPrefix": "openrouter/"
+            },
+            "endpoint": "https://telemetry.example.test/openrouter"
+          }
+        ]
+      }
+    }`,
+  );
+
+  expect(
+    loadTelemetryConfig({
+      XDG_CONFIG_HOME: configRoot,
+      OPENCODE_TELEMETRY_HTTP_TOKEN: "secret",
+    }),
+  ).toEqual({
+    http: {
+      default: {
+        endpoint: "https://telemetry.example.test/default",
+        token: "env:OPENCODE_TELEMETRY_HTTP_TOKEN",
+      },
+      routes: [
+        {
+          match: {
+            providerPrefix: "openrouter/",
+          },
+          endpoint: "https://telemetry.example.test/openrouter",
+        },
+      ],
+    },
+  });
+});
+
+test("createTelemetrySinkFromEnv selects routing sink from XDG config", async () => {
+  const configPath = `/tmp/opencode-telemetry-routing-${Date.now()}.jsonc`;
+
+  await Bun.write(
+    configPath,
+    `{
+      "http": {
+        "default": {
+          "endpoint": "https://telemetry.example.test/default"
+        },
+        "routes": [
+          {
+            "match": {
+              "provider": "anthropic"
+            },
+            "endpoint": "https://telemetry.example.test/anthropic"
+          }
+        ]
+      }
+    }`,
+  );
+
   const sink = createTelemetrySinkFromEnv({
     OPENCODE_TELEMETRY_SINK: "http",
-    OPENCODE_TELEMETRY_HTTP_ENDPOINT_ANTHROPIC:
-      "https://telemetry.example.test/anthropic",
+    OPENCODE_TELEMETRY_CONFIG_PATH: configPath,
   });
 
   expect(sink.constructor.name).toBe("RoutingTelemetrySink");

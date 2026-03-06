@@ -1,3 +1,6 @@
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { Hooks, Plugin, PluginInput } from "@opencode-ai/plugin";
 import {
   ConsoleTelemetrySink,
@@ -19,6 +22,31 @@ import {
 import { TELEMETRY_EVENT_NAMES } from "@zenyr/telemetry-domain";
 
 type EnvProvider = Record<string, string | undefined>;
+
+type TelemetryRouteMatchConfig = {
+  provider?: string;
+  providerPrefix?: string;
+  model?: string;
+  modelRegex?: string;
+};
+
+type TelemetryHttpRouteConfig = {
+  match: TelemetryRouteMatchConfig;
+  endpoint: string;
+  token?: string;
+};
+
+type TelemetryHttpConfigFile = {
+  default?: {
+    endpoint: string;
+    token?: string;
+  };
+  routes?: TelemetryHttpRouteConfig[];
+};
+
+type TelemetryConfigFile = {
+  http?: TelemetryHttpConfigFile;
+};
 
 type RuntimeOptions = {
   sink?: TelemetrySinkPort;
@@ -206,54 +234,186 @@ const resolveBufferPolicy = (env: EnvProvider): Partial<TelemetryBufferPolicy> =
   };
 };
 
-const HTTP_ENDPOINT_PREFIX = "OPENCODE_TELEMETRY_HTTP_ENDPOINT_";
+const DEFAULT_CONFIG_PATH_SEGMENTS = ["opencode", "telemetry.jsonc"];
 
-const providerKeyFromEnvSuffix = (suffix: string): string => {
-  return suffix.toLowerCase().replaceAll("_", "-");
+const stripJsonComments = (input: string): string => {
+  let output = "";
+  let inString = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+  let escaped = false;
+
+  for (let index = 0; index < input.length; index += 1) {
+    const current = input[index] ?? "";
+    const next = input[index + 1] ?? "";
+
+    if (inLineComment) {
+      if (current === "\n") {
+        inLineComment = false;
+        output += current;
+      }
+      continue;
+    }
+
+    if (inBlockComment) {
+      if (current === "*" && next === "/") {
+        inBlockComment = false;
+        index += 1;
+      }
+      continue;
+    }
+
+    if (inString) {
+      output += current;
+
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (current === "\\") {
+        escaped = true;
+        continue;
+      }
+
+      if (current === '"') {
+        inString = false;
+      }
+
+      continue;
+    }
+
+    if (current === '"') {
+      inString = true;
+      output += current;
+      continue;
+    }
+
+    if (current === "/" && next === "/") {
+      inLineComment = true;
+      index += 1;
+      continue;
+    }
+
+    if (current === "/" && next === "*") {
+      inBlockComment = true;
+      index += 1;
+      continue;
+    }
+
+    output += current;
+  }
+
+  return output;
 };
 
-const buildHttpSink = (env: EnvProvider, endpoint: string, suffix = ""): HttpTelemetrySink => {
-  const tokenKey = suffix
-    ? `OPENCODE_TELEMETRY_HTTP_TOKEN_${suffix}`
-    : "OPENCODE_TELEMETRY_HTTP_TOKEN";
+export const parseJsoncObject = <T>(input: string): T => {
+  return JSON.parse(stripJsonComments(input)) as T;
+};
+
+const resolveConfigValue = (env: EnvProvider, value: string | undefined): string | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  if (!value.startsWith("env:")) {
+    return value;
+  }
+
+  return env[value.slice(4)];
+};
+
+const defaultTelemetryConfigPath = (env: EnvProvider): string => {
+  const configRoot = env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
+  return join(configRoot, ...DEFAULT_CONFIG_PATH_SEGMENTS);
+};
+
+export const loadTelemetryConfig = (
+  env: EnvProvider = DEFAULT_ENV,
+): TelemetryConfigFile | undefined => {
+  const configPath = env.OPENCODE_TELEMETRY_CONFIG_PATH ?? defaultTelemetryConfigPath(env);
+
+  if (!existsSync(configPath)) {
+    return undefined;
+  }
+
+  return parseJsoncObject<TelemetryConfigFile>(readFileSync(configPath, "utf8"));
+};
+
+const buildHttpSink = (env: EnvProvider, endpoint: string, token?: string): HttpTelemetrySink => {
+  const resolvedToken = resolveConfigValue(env, token) ?? env.OPENCODE_TELEMETRY_HTTP_TOKEN;
 
   return new HttpTelemetrySink({
     endpoint,
-    token: env[tokenKey],
+    token: resolvedToken,
     maxAttempts: readInt(env.OPENCODE_TELEMETRY_HTTP_MAX_ATTEMPTS, 8),
     backoffMs: readInt(env.OPENCODE_TELEMETRY_HTTP_BACKOFF_MS, 500),
   });
 };
 
-const buildHttpRoutingSink = (env: EnvProvider): TelemetrySinkPort => {
-  const fallbackEndpoint = env.OPENCODE_TELEMETRY_HTTP_ENDPOINT;
-  const rules = Object.entries(env)
-    .filter(
-      ([key, value]) =>
-        key.startsWith(HTTP_ENDPOINT_PREFIX) &&
-        key !== "OPENCODE_TELEMETRY_HTTP_ENDPOINT" &&
-        Boolean(value),
-    )
-    .map(([key, endpoint]) => {
-      const suffix = key.slice(HTTP_ENDPOINT_PREFIX.length);
+const matchRoute = (
+  config: TelemetryRouteMatchConfig,
+  event: Parameters<RoutingTelemetrySink["publish"]>[0][number],
+): boolean => {
+  const provider = event.attributes.provider;
+  const model = event.attributes.model;
 
-      return {
-        provider: providerKeyFromEnvSuffix(suffix),
-        sink: buildHttpSink(env, endpoint ?? "", suffix),
-      };
-    });
+  if (config.provider !== undefined && provider !== config.provider) {
+    return false;
+  }
+
+  if (
+    config.providerPrefix !== undefined &&
+    (typeof provider !== "string" || !provider.startsWith(config.providerPrefix))
+  ) {
+    return false;
+  }
+
+  if (config.model !== undefined && model !== config.model) {
+    return false;
+  }
+
+  if (
+    config.modelRegex !== undefined &&
+    (typeof model !== "string" || !new RegExp(config.modelRegex).test(model))
+  ) {
+    return false;
+  }
+
+  return true;
+};
+
+const buildHttpRoutingSink = (env: EnvProvider): TelemetrySinkPort => {
+  const config = loadTelemetryConfig(env)?.http;
+  const fallbackEndpoint =
+    resolveConfigValue(env, config?.default?.endpoint) ?? env.OPENCODE_TELEMETRY_HTTP_ENDPOINT;
+  const fallbackToken = resolveConfigValue(env, config?.default?.token);
+  const rules = (config?.routes ?? []).map((route) => {
+    return {
+      match: (event: Parameters<RoutingTelemetrySink["publish"]>[0][number]) => {
+        return matchRoute(route.match, event);
+      },
+      sink: buildHttpSink(
+        env,
+        resolveConfigValue(env, route.endpoint) ?? "",
+        route.token,
+      ),
+    };
+  });
 
   if (rules.length === 0) {
     if (!fallbackEndpoint) {
       throw new Error("OPENCODE_TELEMETRY_HTTP_ENDPOINT req for http sink");
     }
 
-    return buildHttpSink(env, fallbackEndpoint);
+    return buildHttpSink(env, fallbackEndpoint, fallbackToken);
   }
 
   return new RoutingTelemetrySink({
     rules,
-    fallback: fallbackEndpoint ? buildHttpSink(env, fallbackEndpoint) : undefined,
+    fallback: fallbackEndpoint
+      ? buildHttpSink(env, fallbackEndpoint, fallbackToken)
+      : undefined,
   });
 };
 
