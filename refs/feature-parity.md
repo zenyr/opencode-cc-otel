@@ -14,7 +14,7 @@ Scope:
 
 OpenCode plugin parity is split in 2 layers:
 
-- high-signal product telemetry parity: **roughly 70% achievable**
+- high-signal product telemetry parity: **roughly 80% achievable**
 - full Claude backend parity: **roughly 35% achievable**
 
 Reason:
@@ -34,14 +34,14 @@ So:
 | user prompt events/logs | `tengu_input_prompt`, `claude_code.user_prompt` | high | `chat.message`, `tui.prompt.append`, `event.message.updated` give enough prompt/session context |
 | tool lifecycle | `tengu_tool_use_*`, `claude_code.tool_result` | high | `tool.execute.before/after`, permission hooks, metadata file path, output title available |
 | permission decision metrics | `claude_code.code_edit_tool.decision` | high | `permission.ask` gives decision result; source attribution still partial |
-| command/git operation events | `tengu_input_command`, git op tracking | medium | `command.execute.before` + `event.command.executed`; success/failure detail still thin |
-| token/cost/API usage | `claude_code.token.usage`, `cost.usage`, `api_*` | medium | `event.message.updated` assistant msg has `cost`, `tokens`, error info; request attempt/provider/speed not fully exposed |
-| session/activity metrics | `session.count`, `active_time.total` | medium | `session.created`, `session.updated`, `session.idle`, `session.status`, TUI events allow approximation, not exact Claude logic |
+| command/git operation events | `tengu_input_command`, git op tracking | medium-high | `command.execute.before` + `event.command.executed`; commit/PR success approximation now implemented, failure detail still thin |
+| token/cost/API usage | `claude_code.token.usage`, `cost.usage`, `api_*` | medium-high | `event.message.updated` assistant msg has `cost`, `tokens`, success/error info; request attempt/provider transport detail still partial |
+| session/activity metrics | `session.count`, `active_time.total` | medium-high | `session.created`, `session.idle`, `session.status`, `session.error` now covered; active time still approximate |
 | diff/LoC metrics | `lines_of_code.count` | medium-high | `session.diff`, message/session summaries expose file diffs/additions/deletions |
-| HTTP batching/retry | 1P batch retry/backoff | high | plugin can implement own sink fully |
-| disk queue + startup replay | failed batch durability | medium | possible in plugin code, but must be re-built from scratch |
-| Segment/Datadog side channels | side-channel forwarding | medium-high | technically buildable, but allowlist/flag logic must be custom |
-| OTEL metrics/logs | 3P exporter paths | medium-high | possible with custom OTEL sink/exporter; not native Claude envelope |
+| HTTP batching/retry | 1P batch retry/backoff | high | implemented with bounded retry/backoff |
+| disk queue + startup replay | failed batch durability | medium-high | implemented via durable queue wrapper + replay handshake |
+| Segment/Datadog side channels | side-channel forwarding | medium-high | fanout path exists; dedicated Datadog/Segment payloads still pending |
+| OTEL metrics/logs | 3P exporter paths | medium-high | implemented as normalized OTEL-like JSON envelope, not native SDK exporter |
 | OTEL traces | model/tool traces | low | no trace/span lifecycle hooks for Claude-equivalent tracing |
 | org/trust/identity enrichment | org opt-out, trust, device/account/email | low | plugin API does not expose these values |
 | remote config / feature flags / killswitch | GrowthBook, firstParty, sampling config | low | not exposed; must build separate config system |
@@ -181,23 +181,25 @@ Plugin can implement similar logic for its own sink, but not parity with Claude 
 
 ## Current repo vs max achievable parity
 
-Current repo already covers a small, valid base:
+Current repo now covers most realistic first-pass parity wins:
 
 - shared event contracts
-- hook mapping for config/event/permission/command/tool
+- hook mapping for prompt/API usage/API error/permission/command/git/session/file/tool
 - HTTP sink with retry/backoff
 - buffered publish/flush
-
-Current repo does **not** yet cover the biggest remaining parity wins:
-
-- `chat.message` prompt capture
-- `event.message.updated` token/cost/API success/error extraction
-- `session.diff` / `file.edited` LoC + file-change metrics
-- `event.command.executed` correlation for better git op success detection
 - disk queue + startup replay
-- OTEL / Segment / Datadog fanout
+- fanout sink
+- normalized OTEL JSON export
 
-So current implementation is still **well below max plugin parity**. Rough estimate today: **20-30% of the realistic plugin ceiling**.
+Current repo still does **not** cover the biggest remaining parity wins:
+
+- dedicated Datadog payload formatting
+- dedicated Segment payload formatting
+- stronger command success/failure semantics beyond coarse event correlation
+- session active-time derivation
+- native OTEL SDK/exporter integration if exact 3P stack parity is desired
+
+So current implementation is now **meaningfully closer to realistic plugin parity**. Rough estimate today: **60-70% of the realistic plugin ceiling**.
 
 ## Best realistic target
 
