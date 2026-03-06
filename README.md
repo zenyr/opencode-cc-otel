@@ -1,38 +1,28 @@
 # @zenyr/opencode-cc-telemetry
 
-Bun + Turbo 기반 모노레포입니다.
+OpenCode telemetry plugin project.
 
-- 루트 패키지: `@zenyr/opencode-cc-telemetry` (private)
-- 메인 배포 패키지: `packages/main` (`opencode-cc-telemetry`)
-- hexagonal 아키텍처를 패키지 경계로 분리
+현재 저장소는 **foundation stage**입니다. 목표는 OpenCode plugin interface에 맞는 telemetry 수집/정규화/전송 구조를 안정적으로 제공하는 것입니다.
 
-## Package Layout
+## What this is
 
-- `packages/domain` - 도메인 이벤트 모델
-- `packages/application` - 유즈케이스/포트
-- `packages/adapters` - 포트 구현체(예: sink, language resolver)
-- `packages/main` - 최종 조립 및 외부 진입점
+- OpenCode plugin용 telemetry 패키지
+- Bun + Turbo 기반 모노레포
+- hexagonal architecture 기반 패키지 분리
+- 배포 대상은 `opencode-cc-telemetry` (`packages/main`) 1개
 
-## Install
+## Current status
 
-```bash
-bun install
-```
+- plugin hook 보일러플레이트 구성 완료
+- domain/application/adapters/main 패키지 경계 분리 완료
+- core scaffold 기준 빌드/테스트 통과
 
-## Build
+## Notable Reference
 
-```bash
-bun run build
-```
+- https://github.com/pai4451/opencode-telemetry-plugin
 
-모든 빌드는 `bun build`만 사용하며, 실행 오케스트레이션은 Turbo(`turbo run build`)를 사용합니다.
+## Spec refs in this repo
 
-## Test
-
-```bash
-bun run test
-```
-
-## 참고
-
-`pai4451/opencode-telemetry-plugin`의 목적과 구성 아이디어를 참고했지만, 구현은 현재 저장소에서 ground-up으로 새로 작성했습니다.
+- `refs/claude-reverse/metrics-to-anthropic.md`
+- `refs/claude-reverse/docs/claude/telemetry-event-names.txt`
+- `refs/README.md`
