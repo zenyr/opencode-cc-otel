@@ -1,0 +1,16 @@
+{
+  "name": "@zenyr/telemetry-application",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@zenyr/telemetry-domain": "workspace:*"
+  },
+  "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun",
+    "test": "bun test"
+  }
+}

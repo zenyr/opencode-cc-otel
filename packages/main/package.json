@@ -1,0 +1,21 @@
+{
+  "name": "opencode-cc-telemetry",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@zenyr/telemetry-adapters": "workspace:*",
+    "@zenyr/telemetry-application": "workspace:*",
+    "@zenyr/telemetry-domain": "workspace:*"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": "^1.2.20"
+  },
+  "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist --target bun",
+    "test": "bun test"
+  }
+}
