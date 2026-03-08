@@ -6,7 +6,7 @@ Assess how close an OpenCode plugin can get to Claude Code telemetry behavior us
 
 Scope:
 
-- source refs: `refs/metrics-to-anthropic.md`, `refs/docs/claude/telemetry-portable.md`
+- source refs: `refs/metrics-parity-notes.md`, `refs/docs/claude/telemetry-portable-summary.md`
 - plugin surface: `@opencode-ai/plugin/dist/index.d.ts`
 - event/config model: `@opencode-ai/sdk/dist/gen/types.gen.d.ts`
 

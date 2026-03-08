@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zenyr.github.io/opencode-cc-telemetry/schemas/telemetry.schema.json",
+  "title": "OpenCode Telemetry Config",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional hosted schema URL for editor validation."
+    },
+    "http": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "default": {
+          "$ref": "#/$defs/httpTarget"
+        },
+        "routes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "match": {
+                "$ref": "#/$defs/routeMatch"
+              },
+              "endpoint": {
+                "$ref": "#/$defs/httpsUrl"
+              },
+              "token": {
+                "$ref": "#/$defs/tokenValue"
+              }
+            },
+            "required": [
+              "match",
+              "endpoint"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "httpsUrl": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://",
+      "description": "HTTPS telemetry endpoint."
+    },
+    "tokenValue": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Bearer token or env indirection like env:OPENCODE_TELEMETRY_HTTP_TOKEN."
+    },
+    "httpTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "endpoint": {
+          "$ref": "#/$defs/httpsUrl"
+        },
+        "token": {
+          "$ref": "#/$defs/tokenValue"
+        }
+      },
+      "required": [
+        "endpoint"
+      ]
+    },
+    "routeMatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Exact provider match."
+        },
+        "providerPrefix": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Prefix match for dynamic provider namespaces."
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Exact model match."
+        },
+        "modelRegex": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Regular expression tested against model attr."
+        }
+      },
+      "minProperties": 1
+    }
+  },
+  "examples": [
+    {
+      "http": {
+        "default": {
+          "endpoint": "https://telemetry.example.com/default",
+          "token": "env:OPENCODE_TELEMETRY_HTTP_TOKEN"
+        },
+        "routes": [
+          {
+            "match": {
+              "provider": "anthropic"
+            },
+            "endpoint": "https://telemetry.example.com/anthropic"
+          },
+          {
+            "match": {
+              "providerPrefix": "openrouter/"
+            },
+            "endpoint": "https://telemetry.example.com/openrouter"
+          },
+          {
+            "match": {
+              "modelRegex": "^gpt-5"
+            },
+            "endpoint": "https://telemetry.example.com/openai"
+          }
+        ]
+      }
+    }
+  ]
+}

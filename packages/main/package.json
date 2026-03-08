@@ -1,5 +1,5 @@
 {
-  "name": "opencode-cc-telemetry",
+  "name": "opencode-cc-otel",
   "version": "0.1.0",
   "private": false,
   "type": "module",

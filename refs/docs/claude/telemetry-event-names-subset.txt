@@ -1,0 +1,48 @@
+# Claude telemetry event names (public-safe subset)
+
+This file is intentionally not exhaustive.
+
+Full local inventory stays local and is excluded from git.
+
+Representative groups used for parity reasoning:
+
+## Prompt / command
+
+- `tengu_input_prompt`
+- `tengu_input_command`
+- `tengu_input_bash`
+- `tengu_input_slash_invalid`
+
+## Tool lifecycle
+
+- `tengu_tool_use_success`
+- `tengu_tool_use_error`
+- `tengu_tool_use_rejected`
+
+## API lifecycle
+
+- `tengu_api_success`
+- `tengu_api_error`
+- `tengu_api_retry`
+
+## Session / startup
+
+- `tengu_init`
+- `tengu_startup_telemetry`
+- `tengu_session_created`
+- `tengu_session_idle`
+- `tengu_session_status`
+
+## Git / file / diff
+
+- `tengu_git_operation`
+- `tengu_file_operation`
+- `tengu_file_changed`
+
+## Config / permission / hooks
+
+- `tengu_config_changed`
+- `tengu_hook_created`
+- `tengu_hook_deleted`
+
+The public repo should use this file only as a category aid, not as an authoritative vendor inventory.

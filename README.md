@@ -1,4 +1,4 @@
-# @zenyr/opencode-cc-telemetry
+# opencode-cc-otel
 
 OpenCode telemetry plugin monorepo.
 
@@ -7,7 +7,7 @@ OpenCode telemetry plugin monorepo.
 - Telemetry packages for OpenCode plugins
 - Bun + Turbo monorepo
 - Hexagonal boundaries: `domain` -> `application` -> `adapters` -> `main`
-- Single deployable package: `opencode-cc-telemetry` (`packages/main`)
+- Single deployable package: `opencode-cc-otel` (`packages/main`)
 
 ## Current status
 
@@ -31,6 +31,26 @@ OpenCode telemetry plugin monorepo.
 - `OPENCODE_TELEMETRY_CHANNEL_ID`: channel id for `otel-json`, default `otel_3p_logs`
 - `OPENCODE_TELEMETRY_MAX_BATCH_SIZE`: app buffer size, default `1`
 - `OPENCODE_TELEMETRY_FLUSH_INTERVAL_MS`: reserved policy value, default `0`
+
+## Config file
+
+- XDG config path: `~/.config/opencode/telemetry.jsonc`
+- override path: `OPENCODE_TELEMETRY_CONFIG_PATH`
+- example config: `telemetry.jsonc.example`
+- schema source: `schemas/telemetry.schema.json`
+- GitHub Pages schema URL: `https://zenyr.github.io/opencode-cc-telemetry/schemas/telemetry.schema.json`
+- if repo or Pages path changes, update `$id` in `schemas/telemetry.schema.json` and `$schema` in `telemetry.jsonc.example`
+
+Supported HTTP routing config:
+
+- `http.default.endpoint`
+- `http.default.token`
+- `http.routes[].match.provider`
+- `http.routes[].match.providerPrefix`
+- `http.routes[].match.model`
+- `http.routes[].match.modelRegex`
+- `http.routes[].endpoint`
+- `http.routes[].token`
 
 ## Covered telemetry
 
@@ -71,7 +91,7 @@ bun run build
 
 ## Spec refs in this repo
 
-- `refs/metrics-to-anthropic.md`
-- `refs/docs/claude/telemetry-portable.md`
+- `refs/metrics-parity-notes.md`
+- `refs/docs/claude/telemetry-portable-summary.md`
 - `refs/architecture.md`
 - `refs/feature-parity.md`

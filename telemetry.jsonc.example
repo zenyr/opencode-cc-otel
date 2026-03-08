@@ -1,0 +1,36 @@
+{
+  // If repo or Pages path changes, update this URL.
+  "$schema": "https://zenyr.github.io/opencode-cc-telemetry/schemas/telemetry.schema.json",
+
+  // Copy to:
+  // - ~/.config/opencode/telemetry.jsonc
+  // - or $XDG_CONFIG_HOME/opencode/telemetry.jsonc
+
+  "http": {
+    "default": {
+      "endpoint": "https://telemetry.example.com/default",
+      "token": "env:OPENCODE_TELEMETRY_HTTP_TOKEN"
+    },
+    "routes": [
+      {
+        "match": {
+          "provider": "anthropic"
+        },
+        "endpoint": "https://telemetry.example.com/anthropic",
+        "token": "env:OPENCODE_TELEMETRY_HTTP_TOKEN_ANTHROPIC"
+      },
+      {
+        "match": {
+          "providerPrefix": "openrouter/"
+        },
+        "endpoint": "https://telemetry.example.com/openrouter"
+      },
+      {
+        "match": {
+          "modelRegex": "^gpt-5"
+        },
+        "endpoint": "https://telemetry.example.com/openai"
+      }
+    ]
+  }
+}

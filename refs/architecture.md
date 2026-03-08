@@ -7,7 +7,7 @@ This repository is a Bun + Turbo monorepo organized with a hexagonal architectur
 - `packages/domain`: core domain model and business rules
 - `packages/application`: use-cases and application services
 - `packages/adapters`: external integrations (I/O boundaries)
-- `packages/main`: plugin entrypoint and composition root for deployment (`opencode-cc-telemetry`)
+- `packages/main`: plugin entrypoint and composition root for deployment (`opencode-cc-otel`)
 
 ## Notes
 

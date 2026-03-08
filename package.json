@@ -1,5 +1,5 @@
 {
-  "name": "@zenyr/opencode-cc-telemetry",
+  "name": "@zenyr/opencode-cc-otel",
   "private": true,
   "type": "module",
   "workspaces": [
