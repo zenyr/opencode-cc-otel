@@ -22,9 +22,15 @@ type ActionLink = {
 };
 
 type CodeExample = {
-  code: string;
   description: string;
+  files?: CodeFile[];
+  code?: string;
   title: string;
+};
+
+type CodeFile = {
+  code: string;
+  path: string;
 };
 
 type FeatureCard = {
@@ -111,10 +117,10 @@ const pages: PageMeta[] = [
   },
   {
     description: "Monorepo boundaries at a glance.",
-    group: "Internals",
+    group: "Contributors",
     id: "architecture",
-    label: "Architecture",
-    title: "Keep boundaries clear across the monorepo",
+    label: "Repo layout",
+    title: "Repository layout for contributors",
   },
 ];
 
@@ -142,7 +148,7 @@ const heroSignals: KeyPoint[] = [
   },
   {
     title: "One first proof",
-    description: "Start with Anthropic HTTP batch, OTEL JSON, or console.",
+    description: "Start with 2P console or OTEL JSON. 1P is opt-in.",
   },
 ];
 
@@ -166,16 +172,17 @@ const overviewValueProps: FeatureCard[] = [
 
 const supportSnapshot: FeatureCard[] = [
   {
-    title: "First-party",
-    description: "Batch HTTP delivery to Anthropic-side event logging.",
-  },
-  {
-    title: "Second-party",
+    title: "First-party (1P)",
     description:
-      "Claude-style OTEL JSON or console output for team-owned checks and tooling.",
+      "Send batch HTTP events to Anthropic-side reporting. Off by default. Turn on only if you need it.",
   },
   {
-    title: "Third-party",
+    title: "Second-party (2P)",
+    description:
+      "Send Claude-style OTEL JSON or console output to your own tooling or local checks.",
+  },
+  {
+    title: "Third-party (3P)",
     description:
       "Reserved path only. Unsupported today, kept explicit in config.",
   },
@@ -216,50 +223,51 @@ const quickStartSteps: StepDef[] = [
   },
   {
     title: "Choose a first proof",
-    body: "Use 2P console for local checks or 1P HTTP for Anthropic-side reporting.",
+    body: "Start with 2P console for local checks. Turn on 1P HTTP only when you need Anthropic-side reporting.",
   },
 ];
 
 const quickStartExample: CodeExample = {
-  title: "Shortest working setup",
-  description: "Start with channel-aware config.",
-  code: [
-    "# ~/.config/opencode/opencode.jsonc",
-    "{",
-    '  "$schema": "https://opencode.ai/config.json",',
-    '  "plugin": ["opencode-cc-otel"]',
-    "}",
-    "",
-    "# ~/.config/opencode/telemetry.jsonc",
-    "{",
-    '  "$schema": "https://zenyr.github.io/opencode-cc-otel/schemas/telemetry.schema.json",',
-    '  "channels": {',
-    '    "firstParty": {',
-    '      "enabled": true,',
-    '      "sink": "http",',
-    '      "http": {',
-    '        "default": {',
-    '          "endpoint": "https://api.anthropic.com/api/event_logging/batch",',
-    '          "token": "env:OPENCODE_TELEMETRY_HTTP_TOKEN_1P"',
-    "        }",
-    "      }",
-    "    },",
-    '    "secondParty": {',
-    '      "enabled": true,',
-    '      "sink": "otel-json"',
-    "    },",
-    '    "thirdParty": {',
-    '      "enabled": false',
-    "    }",
-    "  }",
-    "}",
-  ].join("\n"),
+  title: "Minimal config files",
+  description: "Create these two files, then start with 2P output.",
+  files: [
+    {
+      path: "~/.config/opencode/opencode.jsonc",
+      code: [
+        "{",
+        '  "$schema": "https://opencode.ai/config.json",',
+        '  "plugin": ["opencode-cc-otel"]',
+        "}",
+      ].join("\n"),
+    },
+    {
+      path: "~/.config/opencode/telemetry.jsonc",
+      code: [
+        "{",
+        '  "$schema": "https://zenyr.github.io/opencode-cc-otel/schemas/telemetry.schema.json",',
+        '  "channels": {',
+        '    "firstParty": {',
+        '      "enabled": false,',
+        '      "sink": "http"',
+        "    },",
+        '    "secondParty": {',
+        '      "enabled": true,',
+        '      "sink": "otel-json"',
+        "    },",
+        '    "thirdParty": {',
+        '      "enabled": false',
+        "    }",
+        "  }",
+        "}",
+      ].join("\n"),
+    },
+  ],
 };
 
 const quickStartChecks = [
   '`~/.config/opencode/opencode.jsonc` should include `"plugin": ["opencode-cc-otel"]`.',
   "`telemetry.jsonc` should point `$schema` to the published schema URL.",
-  "Use 1P HTTP or 2P OTEL JSON as the first proof.",
+  "Start with `secondParty: console` or `otel-json`. Leave 1P off until you need Anthropic-side reporting.",
 ];
 
 const configSurfaces: RowDef[] = [
@@ -637,6 +645,7 @@ export {
 };
 export type {
   ActionLink,
+  CodeFile,
   CodeExample,
   FeatureCard,
   KeyPoint,

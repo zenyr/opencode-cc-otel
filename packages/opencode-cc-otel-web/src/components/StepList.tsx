@@ -1,5 +1,6 @@
 import { Group, Stack, Text, ThemeIcon } from "@mantine/core";
 import type { StepDef } from "../content";
+import { renderInlineCode } from "./InlineCode";
 
 const StepList = ({ steps }: { steps: StepDef[] }) => {
   return (
@@ -23,7 +24,7 @@ const StepList = ({ steps }: { steps: StepDef[] }) => {
           <Stack gap={2}>
             <Text fw={600}>{step.title}</Text>
             <Text c="dimmed" size="sm">
-              {step.body}
+              {renderInlineCode(step.body)}
             </Text>
           </Stack>
         </Group>

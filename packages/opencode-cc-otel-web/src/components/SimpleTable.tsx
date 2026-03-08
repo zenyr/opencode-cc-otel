@@ -1,5 +1,6 @@
 import { Code, Table } from "@mantine/core";
 import type { RowDef } from "../content";
+import { renderInlineCode } from "./InlineCode";
 
 const SimpleTable = ({
   rows,
@@ -24,7 +25,7 @@ const SimpleTable = ({
               <Code>{row.name}</Code>
             </Table.Td>
             <Table.Td>{row.value}</Table.Td>
-            <Table.Td>{row.description}</Table.Td>
+            <Table.Td>{renderInlineCode(row.description)}</Table.Td>
           </Table.Tr>
         ))}
       </Table.Tbody>

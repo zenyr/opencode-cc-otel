@@ -2,6 +2,7 @@ import {
   Alert,
   Button,
   Card,
+  Code,
   Grid,
   Group,
   List,
@@ -11,6 +12,7 @@ import {
 } from "@mantine/core";
 import { CodeCard } from "../components/CodeCard";
 import { FeatureGrid } from "../components/FeatureGrid";
+import { renderInlineCode } from "../components/InlineCode";
 import { PageFrame } from "../components/PageFrame";
 import { SectionCard } from "../components/SectionCard";
 import { StepList } from "../components/StepList";
@@ -39,10 +41,11 @@ const OverviewPage = ({ page }: { page: PageMeta }) => {
                   Claude-compatible telemetry for OpenCode.
                 </Title>
                 <Text c="dimmed" size="lg">
-                  `opencode-cc-otel` is an OpenCode plugin for Claude-compatible
-                  telemetry. Add one plugin entry, one `telemetry.jsonc`, then
-                  send events to Anthropic HTTP batch, team-owned OTEL JSON or
-                  console, or both.
+                  <Code>opencode-cc-otel</Code> is an OpenCode plugin for
+                  Claude-compatible telemetry. Add one plugin entry, add{" "}
+                  <Code>telemetry.jsonc</Code>, then start with 2P console or
+                  OTEL JSON. Turn on 1P only if you need Anthropic-side
+                  reporting.
                 </Text>
                 <Group gap="sm">
                   {heroActions.map((action) => (
@@ -72,7 +75,7 @@ const OverviewPage = ({ page }: { page: PageMeta }) => {
                       className="hero-signal-description"
                       size="sm"
                     >
-                      {item.description}
+                      {renderInlineCode(item.description)}
                     </Text>
                   </Group>
                 ))}
@@ -90,7 +93,7 @@ const OverviewPage = ({ page }: { page: PageMeta }) => {
         <StepList steps={quickStartSteps} />
       </SectionCard>
 
-      <SectionCard title="Choose a delivery path">
+      <SectionCard title="Channel terms">
         <FeatureGrid items={supportSnapshot} />
       </SectionCard>
 
@@ -102,8 +105,8 @@ const OverviewPage = ({ page }: { page: PageMeta }) => {
             title="Good first move"
             variant="light"
           >
-            Use `secondParty: console` or `otel-json` first if you want a local
-            proof before wiring first-party HTTP auth.
+            Use <Code>secondParty: console</Code> or <Code>otel-json</Code>{" "}
+            first if you want a local proof before wiring first-party HTTP auth.
           </Alert>
           <CodeCard example={quickStartExample} />
         </Stack>
@@ -116,7 +119,7 @@ const OverviewPage = ({ page }: { page: PageMeta }) => {
       <SectionCard title="Known limits">
         <List spacing="sm">
           {overviewLimits.map((item) => (
-            <List.Item key={item}>{item}</List.Item>
+            <List.Item key={item}>{renderInlineCode(item)}</List.Item>
           ))}
         </List>
       </SectionCard>

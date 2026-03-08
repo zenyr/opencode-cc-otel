@@ -1,5 +1,6 @@
 import { Card, SimpleGrid, Stack, Text } from "@mantine/core";
 import type { FeatureCard } from "../content";
+import { renderInlineCode } from "./InlineCode";
 
 const FeatureGrid = ({ items }: { items: FeatureCard[] }) => {
   return (
@@ -9,7 +10,7 @@ const FeatureGrid = ({ items }: { items: FeatureCard[] }) => {
           <Stack gap="xs">
             <Text fw={600}>{item.title}</Text>
             <Text c="dimmed" size="sm">
-              {item.description}
+              {renderInlineCode(item.description)}
             </Text>
           </Stack>
         </Card>

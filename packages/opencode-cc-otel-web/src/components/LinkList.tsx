@@ -1,5 +1,6 @@
 import { Anchor, Stack, Text } from "@mantine/core";
 import type { LinkDef } from "../content";
+import { renderInlineCode } from "./InlineCode";
 
 const LinkList = ({ links }: { links: LinkDef[] }) => {
   return (
@@ -14,7 +15,7 @@ const LinkList = ({ links }: { links: LinkDef[] }) => {
           <Stack gap={2}>
             <Text fw={600}>{link.label}</Text>
             <Text c="dimmed" size="sm">
-              {link.description}
+              {renderInlineCode(link.description)}
             </Text>
           </Stack>
         </Anchor>

@@ -1,4 +1,5 @@
 import { Code, List, Paper, Stack, Table } from "@mantine/core";
+import { renderInlineCode } from "../components/InlineCode";
 import { PageFrame } from "../components/PageFrame";
 import { SectionCard } from "../components/SectionCard";
 import { architectureFlow, architectureNotes, packageRoles } from "../content";
@@ -29,17 +30,17 @@ const ArchitecturePage = ({ page }: { page: PageMeta }) => {
                 <Table.Td>
                   <Code>{item.name}</Code>
                 </Table.Td>
-                <Table.Td>{item.description}</Table.Td>
+                <Table.Td>{renderInlineCode(item.description)}</Table.Td>
               </Table.Tr>
             ))}
           </Table.Tbody>
         </Table>
       </SectionCard>
 
-      <SectionCard title="Guardrails">
+      <SectionCard title="Contributor notes">
         <List spacing="sm">
           {architectureNotes.map((item) => (
-            <List.Item key={item}>{item}</List.Item>
+            <List.Item key={item}>{renderInlineCode(item)}</List.Item>
           ))}
         </List>
       </SectionCard>

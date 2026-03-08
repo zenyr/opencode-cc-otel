@@ -1,5 +1,6 @@
 import { List } from "@mantine/core";
 import { CodeCard } from "../components/CodeCard";
+import { renderInlineCode } from "../components/InlineCode";
 import { PageFrame } from "../components/PageFrame";
 import { SectionCard } from "../components/SectionCard";
 import { StepList } from "../components/StepList";
@@ -17,14 +18,14 @@ const QuickStartPage = ({ page }: { page: PageMeta }) => {
         <StepList steps={quickStartSteps} />
       </SectionCard>
 
-      <SectionCard title="Starter config">
+      <SectionCard title="Config files">
         <CodeCard example={quickStartExample} />
       </SectionCard>
 
-      <SectionCard title="What to verify first">
+      <SectionCard title="Quick checks">
         <List spacing="sm">
           {quickStartChecks.map((item) => (
-            <List.Item key={item}>{item}</List.Item>
+            <List.Item key={item}>{renderInlineCode(item)}</List.Item>
           ))}
         </List>
       </SectionCard>

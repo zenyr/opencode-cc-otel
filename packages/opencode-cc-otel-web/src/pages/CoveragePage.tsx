@@ -1,5 +1,6 @@
 import { List, Stack } from "@mantine/core";
 import { FeatureGrid } from "../components/FeatureGrid";
+import { renderInlineCode } from "../components/InlineCode";
 import { PageFrame } from "../components/PageFrame";
 import { SectionCard } from "../components/SectionCard";
 import { SimpleTable } from "../components/SimpleTable";
@@ -15,7 +16,7 @@ const CoveragePage = ({ page }: { page: PageMeta }) => {
           <SimpleTable rows={emittedOutputs} valueLabel="Transport" />
           <List spacing="sm">
             {knownGaps.map((item) => (
-              <List.Item key={item}>{item}</List.Item>
+              <List.Item key={item}>{renderInlineCode(item)}</List.Item>
             ))}
           </List>
         </Stack>
