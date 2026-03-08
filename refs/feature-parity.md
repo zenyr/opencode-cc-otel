@@ -33,17 +33,17 @@ So:
 
 | area | Claude spec | OpenCode plugin parity | notes |
 | --- | --- | --- | --- |
-| user prompt events/logs | `tengu_input_prompt`, `claude_code.user_prompt` | high | `chat.message`, `tui.prompt.append`, `event.message.updated` give enough prompt/session context |
-| tool lifecycle | `tengu_tool_use_*`, `claude_code.tool_result` | high | `tool.execute.before/after`, permission hooks, metadata file path, output title available |
+| user prompt events/logs | `tengu_input_prompt`, `claude_code.user_prompt` | high | plugin surface exposes enough prompt/session/model context; current repo emits both |
+| tool lifecycle | `tengu_tool_use_*`, `claude_code.tool_result` | medium-high | success path is strong; current repo does not emit first-party tool error yet |
 | permission decision metrics | `claude_code.code_edit_tool.decision` | high | `permission.ask` gives decision result; source attribution still partial |
-| command/git operation events | `tengu_input_command`, git op tracking | medium-high | `command.execute.before` + `event.command.executed`; commit/PR success approximation now implemented, failure detail still thin |
+| command/git operation events | `tengu_input_command`, git op tracking | medium-high | `command.execute.before` + `event.command.executed`; current repo derives commit/PR metrics heuristically, failure detail still thin |
 | token/cost/API usage | `claude_code.token.usage`, `cost.usage`, `api_*` | medium-high | `event.message.updated` assistant msg has `cost`, `tokens`, success/error info; request attempt/provider transport detail still partial |
-| session/activity metrics | `session.count`, `active_time.total` | medium-high | `session.created`, `session.idle`, `session.status`, `session.error` now covered; active time still approximate |
-| diff/LoC metrics | `lines_of_code.count` | medium-high | `session.diff`, message/session summaries expose file diffs/additions/deletions |
+| session/activity metrics | `session.count`, `active_time.total` | medium | session count is easy; current repo records active time only from command duration, not full user activity |
+| diff/LoC metrics | `lines_of_code.count` | medium-high | `session.diff` exposes enough totals; current repo emits added/removed metrics |
 | HTTP batching/retry | 1P batch retry/backoff | high | implemented with bounded retry/backoff |
 | disk queue + startup replay | failed batch durability | medium-high | implemented via durable queue wrapper + replay handshake |
 | Segment/Datadog side channels | side-channel forwarding | low | intentionally unsupported for now |
-| OTEL metrics/logs | 2P reporting path | medium-high | implemented as Claude-compatible OTEL-like JSON envelopes, not native SDK exporter |
+| OTEL metrics/logs | 2P reporting path | medium-high | current repo emits Claude-compatible OTEL-style JSON envelopes, not native SDK exporter |
 | OTEL traces | model/tool traces | low | no trace/span lifecycle hooks for Claude-equivalent tracing |
 | org/trust/identity enrichment | org opt-out, trust, identity enrichment | low | plugin API does not expose these values |
 | remote config / feature flags / killswitch | GrowthBook, firstParty, sampling config | low | not exposed; must build separate config system |
@@ -55,15 +55,14 @@ So:
 
 Using plugin hooks + SDK events, an OpenCode plugin can capture most high-signal runtime events:
 
-- prompt intake: `chat.message`, `tui.prompt.append`
+- prompt intake: `chat.message`
 - tool start/end: `tool.execute.before`, `tool.execute.after`
 - permission outcome: `permission.ask`
 - command activity: `command.execute.before`, `event.command.executed`
-- session lifecycle: `session.created`, `session.updated`, `session.deleted`, `session.idle`, `session.status`
-- diff/file changes: `session.diff`, `file.edited`, message/session diff summaries
-- runtime errors: `session.error`, assistant message error fields
+- diff/file changes: `session.diff`, message/session diff summaries
+- runtime errors: assistant message error fields
 
-This is enough to recreate a solid `tengu_*`-style event stream. Exact payload identity still depends on whether repo internals preserve Claude field names and envelope shape instead of translating into repo-local names.
+This is enough to recreate a solid high-signal `tengu_*`-style event stream. In this repo, Claude-compatible names and envelopes are already treated as the primary external contract for covered paths.
 
 ### 2) Usage/cost telemetry
 
@@ -101,6 +100,11 @@ An OpenCode plugin can implement its own:
 
 This means transport parity is mostly an engineering task, not an API limitation.
 
+Current repo status on delivery:
+
+- implemented: first-party batch envelope, 401 retry without auth on second attempt, disk-backed replay, fanout, channel-aware config, second-party OTEL-style JSON output
+- not implemented: dedicated Segment adapter, dedicated Datadog adapter, trace exporter
+
 ## What stays partial
 
 ### 1) Commit / PR parity
@@ -130,12 +134,10 @@ Claude has explicit `active_time.total` logic.
 
 OpenCode exposes enough for approximation:
 
-- `session.status`
-- `session.idle`
-- TUI prompt/command events
+- prompt/command timing
 - message lifecycle timing
 
-But there is no single canonical "active time" source in plugin API, so parity is behavioral, not exact.
+But there is no single canonical "active time" source in plugin API, so parity is behavioral, not exact. Current repo only records CLI-active time from command duration, not full user-active time.
 
 ### 3) OTEL parity
 
@@ -178,24 +180,27 @@ Plugin can implement similar logic for its own sink, but not parity with Claude 
 
 Current repo now covers most realistic first-pass parity wins:
 
-- shared event contracts
-- hook mapping for prompt/API usage/API error/permission/command/git/session/file/tool
+- shared Claude-compatible event and metric contracts
+- hook mapping for prompt/API usage/API error/permission/command/git/tool/diff
 - HTTP sink with retry/backoff
 - buffered publish/flush
 - disk queue + startup replay
 - fanout sink
-- OTEL JSON export
+- Claude-compatible OTEL-style JSON export
+- channel-aware config/schema for `firstParty` / `secondParty` / `thirdParty`
 
 Current repo still does **not** cover the biggest remaining parity wins:
 
-- Claude raw event names/envelopes as canonical domain model
+- first-party tool error event emission
+- first-party slash/bash/startup/git-operation event coverage
 - dedicated Datadog payload formatting
 - dedicated Segment payload formatting
 - stronger command success/failure semantics beyond coarse event correlation
-- session active-time derivation
+- session lifecycle and file lifecycle hook mapping
+- user-active-time derivation beyond command duration
 - native OTEL SDK/exporter integration if exact 3P stack parity is desired
 
-So current implementation is now **meaningfully closer to realistic plugin parity**, but it is still architected around repo-defined normalized events instead of Claude raw payload compatibility. Rough estimate today: **60-70% of the realistic plugin ceiling**, lower for strict payload identity.
+So current implementation is now **meaningfully closer to realistic plugin parity** and already uses Claude-compatible names for covered outputs, but strict end-to-end parity is still partial. Rough estimate today: **70-80% of the realistic plugin ceiling** for high-signal telemetry, lower for strict payload identity and Claude-internal behavior.
 
 ## Best realistic target
 

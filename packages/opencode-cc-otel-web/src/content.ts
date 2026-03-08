@@ -54,6 +54,13 @@ type PackageRole = {
   name: string;
 };
 
+type ParityRow = {
+  area: string;
+  current: string;
+  notes: string;
+  status: string;
+};
+
 type RowDef = {
   description: string;
   name: string;
@@ -193,17 +200,17 @@ const overviewSupportHighlights: FeatureCard[] = [
   {
     title: "Prompt flow and tool activity",
     description:
-      "Prompt, command, tool, API success, and API error paths are covered where source fields exist.",
+      "Prompt, command, tool success, API success, API error, and diff metrics are covered where source fields exist.",
   },
   {
     title: "Replay, retry, and fanout",
     description:
-      "Runtime behavior stays explicit instead of hidden behind background magic.",
+      "First-party retry, auth-less 401 retry, replay, and fanout stay explicit instead of hidden behind background magic.",
   },
   {
-    title: "Published schema",
+    title: "Known limits stay explicit",
     description:
-      "`telemetry.jsonc` has a stable schema URL for editor validation and review.",
+      "Session lifecycle, file lifecycle, user-active time, and some first-party events are still partial.",
   },
 ];
 
@@ -211,6 +218,7 @@ const overviewLimits = [
   "thirdParty forwarding is unsupported and must stay disabled.",
   "Full Claude parity is partial where the OpenCode plugin API does not expose source fields.",
   "secondParty output is Claude-style OTEL JSON, not native OTEL SDK wiring.",
+  "Current active-time reporting is CLI command duration, not full user-active time.",
 ];
 
 const quickStartSteps: StepDef[] = [
@@ -499,8 +507,9 @@ const coverageFamilies: FeatureCard[] = [
     description: "API success and error reporting where source fields exist.",
   },
   {
-    title: "Commands and diffs",
-    description: "Command execution and diff metrics.",
+    title: "Commands, tools, and diffs",
+    description:
+      "Command execution, tool success, permission decisions, and diff metrics.",
   },
 ];
 
@@ -525,10 +534,160 @@ const emittedOutputs: RowDef[] = [
   },
 ];
 
+const parityMatrix: ParityRow[] = [
+  {
+    area: "User prompt events",
+    status: "High",
+    current: "1P + 2P emitted",
+    notes:
+      "`tengu_input_prompt` and `claude_code.user_prompt` both emit from `chat.message`.",
+  },
+  {
+    area: "Tool lifecycle",
+    status: "Medium-high",
+    current: "Success path only",
+    notes:
+      "1P `tengu_tool_use_success` and 2P `claude_code.tool_result` emit on success. 1P tool error not emitted yet.",
+  },
+  {
+    area: "Permission decisions",
+    status: "High",
+    current: "2P emitted",
+    notes:
+      "`claude_code.tool_decision` and `claude_code.code_edit_tool.decision` emit. Decision source stays `unknown` today.",
+  },
+  {
+    area: "API usage and failure",
+    status: "High",
+    current: "1P + 2P emitted",
+    notes:
+      "`message.updated` maps to 1P success/error, 2P api request/error, plus cost and token metrics.",
+  },
+  {
+    area: "Token and cost metrics",
+    status: "High",
+    current: "2P emitted",
+    notes:
+      "`cost.usage` and `token.usage` emit for input, output, cache read, and cache creation tokens.",
+  },
+  {
+    area: "Diff and LoC metrics",
+    status: "High",
+    current: "2P emitted",
+    notes:
+      "`session.diff` maps to added and removed `lines_of_code.count` metrics.",
+  },
+  {
+    area: "Command telemetry",
+    status: "Medium-high",
+    current: "1P + 2P partial",
+    notes:
+      "1P `tengu_input_command` emits. `commit.count` and `pull_request.count` use command correlation heuristics.",
+  },
+  {
+    area: "Git-operation 1P events",
+    status: "Low",
+    current: "Not emitted",
+    notes:
+      "First-party slash/bash/startup/git-operation event families are still missing.",
+  },
+  {
+    area: "Session count",
+    status: "High",
+    current: "2P emitted",
+    notes: "`session.count` emits from plugin config startup path.",
+  },
+  {
+    area: "Active time",
+    status: "Medium",
+    current: "CLI-only approximation",
+    notes:
+      "`active_time.total` derives from command duration only, not full user-active time.",
+  },
+  {
+    area: "Session lifecycle hooks",
+    status: "Low",
+    current: "Not wired",
+    notes:
+      "No current mapping for `session.created`, `session.updated`, `session.deleted`, `session.idle`, `session.status`, or `session.error`.",
+  },
+  {
+    area: "File lifecycle hooks",
+    status: "Low",
+    current: "Not wired",
+    notes: "No current mapping for `file.edited` lifecycle coverage.",
+  },
+  {
+    area: "1P HTTP delivery",
+    status: "High",
+    current: "Implemented",
+    notes:
+      "Batch envelope, bounded retry/backoff, and auth-less retry after 401 are implemented.",
+  },
+  {
+    area: "Durable replay",
+    status: "High",
+    current: "Implemented",
+    notes:
+      "Failed first-party batches can persist to disk and replay on startup.",
+  },
+  {
+    area: "Fanout",
+    status: "High",
+    current: "Implemented",
+    notes:
+      "First-party and second-party sinks can run together through fanout composition.",
+  },
+  {
+    area: "2P OTEL JSON",
+    status: "High",
+    current: "Implemented",
+    notes:
+      "Claude-style OTEL JSON logs and metrics emit over file or console transport.",
+  },
+  {
+    area: "Native OTEL SDK/exporter parity",
+    status: "Low",
+    current: "Not implemented",
+    notes:
+      "Current second-party path uses Claude-style JSON envelopes, not native SDK readers/exporters.",
+  },
+  {
+    area: "Third-party forwarding",
+    status: "Low",
+    current: "Unsupported",
+    notes: "`thirdParty` stays explicit in config but must remain disabled.",
+  },
+  {
+    area: "Segment / Datadog adapters",
+    status: "Low",
+    current: "Not implemented",
+    notes: "No dedicated Segment or Datadog payload formatting exists today.",
+  },
+  {
+    area: "Trace / span parity",
+    status: "Low",
+    current: "Not implemented",
+    notes:
+      "No Claude-equivalent trace/span lifecycle is exposed through current plugin wiring.",
+  },
+  {
+    area: "Trust / identity / org policy",
+    status: "Low",
+    current: "Blocked by plugin surface",
+    notes:
+      "Claude-internal trust state, org opt-out, identity enrichment, remote config, and feature-flag gates are not exposed.",
+  },
+];
+
 const knownGaps = [
   "Full Claude parity is still partial where the OpenCode plugin API lacks source fields.",
   "thirdParty forwarding is unsupported and must stay disabled.",
   "secondParty export is Claude-style OTEL JSON, not native OTEL SDK wiring.",
+  "firstParty tool error and firstParty slash/bash/startup/git-operation events are not emitted yet.",
+  "Session lifecycle and file lifecycle coverage are not wired yet.",
+  "`active_time.total` is derived from command duration only, not full user activity.",
+  "Commit and pull-request metrics use command correlation heuristics, not canonical success/failure state.",
 ];
 
 const runtimeBehaviors: FeatureCard[] = [
@@ -643,6 +802,7 @@ export {
   coverageFamilies,
   deployChecks,
   emittedOutputs,
+  parityMatrix,
   firstPartyEnvVars,
   firstPartyExample,
   firstPartyRules,
@@ -676,6 +836,7 @@ export type {
   KeyPoint,
   LinkDef,
   PackageRole,
+  ParityRow,
   PageId,
   PageMeta,
   RowDef,
