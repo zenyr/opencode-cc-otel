@@ -1,10 +1,13 @@
 :root {
-  --app-bg: #f8f9fb;
-  --app-surface: rgba(255, 255, 255, 0.96);
-  --app-border: rgba(33, 37, 41, 0.08);
-  --app-shadow: 0 8px 20px rgba(33, 37, 41, 0.03);
-  --app-text-soft: #6b7280;
-  --app-accent: #1c7ed6;
+  --app-bg: #eef2f3;
+  --app-surface: rgba(255, 255, 255, 0.94);
+  --app-surface-strong: #ffffff;
+  --app-border: rgba(21, 37, 53, 0.1);
+  --app-shadow: 0 18px 44px rgba(18, 31, 44, 0.08);
+  --app-text-soft: #5d6976;
+  --app-accent: #1769aa;
+  --app-accent-soft: rgba(23, 105, 170, 0.1);
+  --app-ink: #1f2a37;
 }
 
 html,
@@ -15,13 +18,23 @@ body,
 
 body {
   margin: 0;
-  color: #212529;
-  background: linear-gradient(180deg, #fbfcfe 0%, var(--app-bg) 100%);
+  color: var(--app-ink);
+  background: radial-gradient(
+      circle at top left,
+      rgba(23, 105, 170, 0.12),
+      transparent 30%
+    ),
+    radial-gradient(
+      circle at top right,
+      rgba(37, 99, 235, 0.08),
+      transparent 24%
+    ), linear-gradient(180deg, #f9fbfc 0%, var(--app-bg) 100%);
 }
 
 .site-header {
-  background: rgba(248, 249, 251, 0.92);
+  background: rgba(249, 251, 252, 0.82);
   border-bottom: 1px solid var(--app-border);
+  backdrop-filter: blur(14px);
 }
 
 .header-inner,
@@ -31,11 +44,17 @@ body {
 
 .brand-button {
   height: auto;
-  padding: 0.35rem 0.45rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 999px;
 }
 
 .site-main {
   min-height: 100vh;
+}
+
+.landing-shell {
+  width: 100%;
+  max-width: 76rem;
 }
 
 .docs-grid {
@@ -98,7 +117,7 @@ body {
 }
 
 .page-stack {
-  gap: 1.25rem;
+  gap: 1.5rem;
 }
 
 .page-eyebrow {
@@ -128,18 +147,62 @@ body {
   box-shadow: var(--app-shadow);
 }
 
+.hero-card {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(
+      135deg,
+      rgba(23, 105, 170, 0.08),
+      rgba(255, 255, 255, 0) 42%
+    ),
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.98),
+      rgba(255, 255, 255, 0.92)
+    );
+}
+
 .hero-title {
-  font-size: clamp(1.6rem, 3vw, 2.3rem);
-  line-height: 1.04;
+  max-width: 16ch;
+  font-size: clamp(2.4rem, 5vw, 4.25rem);
+  line-height: 0.98;
   letter-spacing: -0.03em;
 }
 
+.hero-card .mantine-Text-root[data-size="lg"] {
+  max-width: 44rem;
+  font-size: 1.1rem;
+  line-height: 1.7;
+}
+
+.hero-signals {
+  padding: 1rem;
+  border: 1px solid rgba(23, 105, 170, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.8);
+}
+
 .hero-signal-row {
-  padding: 0.1rem 0;
+  align-items: baseline;
+  padding: 0.3rem 0;
 }
 
 .hero-signal-title {
   min-width: 6.5rem;
+  color: var(--app-accent);
+}
+
+.section-card {
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.section-card .mantine-Title-root {
+  letter-spacing: -0.02em;
+}
+
+.section-card .mantine-Alert-root {
+  border: 1px solid rgba(23, 105, 170, 0.14);
+  background: var(--app-accent-soft);
 }
 
 .step-row {
@@ -177,11 +240,19 @@ body {
 }
 
 @media (max-width: 62em) {
+  .landing-shell {
+    max-width: none;
+  }
+
   .docs-grid {
     grid-template-columns: 1fr;
   }
 
   .docs-sidebar {
     top: 0;
+  }
+
+  .hero-title {
+    max-width: none;
   }
 }

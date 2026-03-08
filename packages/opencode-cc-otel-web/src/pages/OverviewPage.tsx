@@ -28,12 +28,13 @@ import type { PageMeta } from "../content";
 
 const OverviewPage = ({ page }: { page: PageMeta }) => {
   return (
-    <PageFrame page={page}>
+    <PageFrame page={page} showIntro={false}>
       <Card className="hero-card" padding="xl" radius="xl" withBorder>
         <Stack gap="xl">
           <Grid align="center" gutter="xl">
             <Grid.Col span={{ base: 12, lg: 7 }}>
               <Stack gap="md">
+                <Text className="page-eyebrow">{page.label}</Text>
                 <Title className="hero-title" order={2}>
                   Understand what OpenCode emits, where it can go, and what is
                   still explicit.

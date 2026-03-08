@@ -5,18 +5,25 @@ import type { PageMeta } from "../content";
 const PageFrame = ({
   children,
   page,
-}: { children: ReactNode; page: PageMeta }) => {
+  showIntro = true,
+}: {
+  children: ReactNode;
+  page: PageMeta;
+  showIntro?: boolean;
+}) => {
   return (
     <Stack className="page-stack" gap="xl">
-      <Stack gap="xs">
-        <Text className="page-eyebrow">{page.label}</Text>
-        <Title className="page-title" order={1}>
-          {page.title}
-        </Title>
-        <Text c="dimmed" className="page-description" size="lg">
-          {page.description}
-        </Text>
-      </Stack>
+      {showIntro ? (
+        <Stack gap="xs">
+          <Text className="page-eyebrow">{page.label}</Text>
+          <Title className="page-title" order={1}>
+            {page.title}
+          </Title>
+          <Text c="dimmed" className="page-description" size="lg">
+            {page.description}
+          </Text>
+        </Stack>
+      ) : null}
       {children}
     </Stack>
   );
