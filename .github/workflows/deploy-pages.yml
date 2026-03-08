@@ -1,12 +1,17 @@
-name: deploy-schema
+name: deploy-pages
 
 on:
   push:
     branches:
       - main
     paths:
+      - package.json
+      - bun.lock
+      - turbo.json
+      - tsconfig.base.json
+      - packages/opencode-cc-otel-web/**
       - schemas/**
-      - .github/workflows/deploy-schema.yml
+      - .github/workflows/deploy-pages.yml
   workflow_dispatch:
 
 permissions:
@@ -28,11 +33,27 @@ jobs:
       - name: checkout
         uses: actions/checkout@v4
 
+      - name: setup-bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+
       - name: configure-pages
         uses: actions/configure-pages@v5
 
-      - name: stage schema artifact
+      - name: install deps
+        run: bun install --frozen-lockfile
+
+      - name: build spa
+        env:
+          PUBLIC_BASE_PATH: /${{ github.event.repository.name }}/
+        run: bun run build:site
+
+      - name: stage pages artifact
         run: |
+          mkdir -p .pages
+          cp -R packages/opencode-cc-otel-web/dist/. .pages/
+          touch .pages/.nojekyll
           mkdir -p .pages/schemas
           test -f schemas/telemetry.schema.json
           cp schemas/telemetry.schema.json .pages/schemas/telemetry.schema.json

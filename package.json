@@ -4,7 +4,10 @@
   "type": "module",
   "workspaces": ["packages/*"],
   "scripts": {
+    "dev": "bun run dev:site",
     "build": "turbo run build",
+    "build:site": "turbo run build --filter=opencode-cc-otel-web",
+    "dev:site": "bun ./packages/opencode-cc-otel-web/scripts/dev.ts",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "test": "turbo run test",
