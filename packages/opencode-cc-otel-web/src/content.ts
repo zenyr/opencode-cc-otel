@@ -127,49 +127,82 @@ const pageGroups = Array.from(new Set(pages.map((page) => page.group))).map(
 
 const heroActions: ActionLink[] = [
   { href: "#/quickstart", label: "Quickstart" },
-  { href: "#/config-model", label: "Config" },
-  { href: "#/coverage", label: "Coverage" },
+  { href: "#/config-model", label: "Channel model" },
+  { href: "#/coverage", label: "Coverage & gaps" },
 ];
 
 const heroSignals: KeyPoint[] = [
   {
-    title: "Canonical target",
-    description: "Claude-compatible payloads are the contract.",
+    title: "One plugin",
+    description: "Register `opencode-cc-otel` in OpenCode.",
   },
   {
-    title: "Channel model",
-    description: "1P and 2P can run together.",
+    title: "One config file",
+    description: "Use `telemetry.jsonc` as the channel-aware contract.",
   },
   {
-    title: "Operator focus",
-    description: "Adoption, verification, coverage, gaps.",
+    title: "One first proof",
+    description: "Start with Anthropic HTTP batch, OTEL JSON, or console.",
   },
 ];
 
 const overviewValueProps: FeatureCard[] = [
   {
-    title: "Keep Claude-compatible payloads as the contract",
-    description: "Repo-local naming is not the end-state.",
+    title: "OpenCode plugin, not a collector rewrite",
+    description:
+      "Keep setup close to OpenCode. Add the plugin, then configure delivery.",
   },
   {
-    title: "Adopt with one plugin and one config file",
-    description: "Register the plugin, then add `telemetry.jsonc`.",
+    title: "Claude-compatible payloads stay the contract",
+    description:
+      "The package aims at Claude-aligned event shapes instead of inventing a new model.",
   },
   {
-    title: "Run channels independently",
-    description: "Enable 1P, 2P, or both.",
+    title: "Run Anthropic-side and team-side paths independently",
+    description:
+      "Enable first-party, second-party, or both from the same config file.",
   },
 ];
 
 const supportSnapshot: FeatureCard[] = [
   {
-    title: "What ships today",
-    description: "1P batch, 2P OTEL, console, replay, fanout.",
+    title: "First-party",
+    description: "Batch HTTP delivery to Anthropic-side event logging.",
   },
   {
-    title: "What stays explicit",
-    description: "3P unsupported. Some parity gaps remain.",
+    title: "Second-party",
+    description:
+      "Claude-style OTEL JSON or console output for team-owned checks and tooling.",
   },
+  {
+    title: "Third-party",
+    description:
+      "Reserved path only. Unsupported today, kept explicit in config.",
+  },
+];
+
+const overviewSupportHighlights: FeatureCard[] = [
+  {
+    title: "Prompt flow and tool activity",
+    description:
+      "Prompt, command, tool, API success, and API error paths are covered where source fields exist.",
+  },
+  {
+    title: "Replay, retry, and fanout",
+    description:
+      "Runtime behavior stays explicit instead of hidden behind background magic.",
+  },
+  {
+    title: "Published schema",
+    description:
+      "`telemetry.jsonc` has a stable schema URL for editor validation and review.",
+  },
+];
+
+const overviewLimits = [
+  "thirdParty forwarding is unsupported and must stay disabled.",
+  "Full Claude parity is partial where the OpenCode plugin API does not expose source fields.",
+  "secondParty output is Claude-style OTEL JSON, not native OTEL SDK wiring.",
 ];
 
 const quickStartSteps: StepDef[] = [
@@ -584,6 +617,8 @@ export {
   heroSignals,
   knownGaps,
   overviewValueProps,
+  overviewSupportHighlights,
+  overviewLimits,
   packageRoles,
   pageGroups,
   pages,

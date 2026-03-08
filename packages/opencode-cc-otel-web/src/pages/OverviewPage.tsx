@@ -1,11 +1,27 @@
-import { Button, Card, Grid, Group, Stack, Text, Title } from "@mantine/core";
+import {
+  Alert,
+  Button,
+  Card,
+  Grid,
+  Group,
+  List,
+  Stack,
+  Text,
+  Title,
+} from "@mantine/core";
+import { CodeCard } from "../components/CodeCard";
 import { FeatureGrid } from "../components/FeatureGrid";
 import { PageFrame } from "../components/PageFrame";
 import { SectionCard } from "../components/SectionCard";
+import { StepList } from "../components/StepList";
 import {
   heroActions,
   heroSignals,
+  overviewLimits,
+  overviewSupportHighlights,
   overviewValueProps,
+  quickStartExample,
+  quickStartSteps,
   supportSnapshot,
 } from "../content";
 import type { PageMeta } from "../content";
@@ -19,11 +35,14 @@ const OverviewPage = ({ page }: { page: PageMeta }) => {
             <Grid.Col span={{ base: 12, lg: 7 }}>
               <Stack gap="md">
                 <Title className="hero-title" order={2}>
-                  OpenCode telemetry, aligned to Claude-compatible payloads.
+                  Understand what OpenCode emits, where it can go, and what is
+                  still explicit.
                 </Title>
                 <Text c="dimmed" size="lg">
-                  First-party and second-party channels, with explicit runtime
-                  behavior.
+                  `opencode-cc-otel` is an OpenCode plugin for Claude-compatible
+                  telemetry. Add one plugin entry, one `telemetry.jsonc`, then
+                  send events to Anthropic HTTP batch, team-owned OTEL JSON or
+                  console, or both.
                 </Text>
                 <Group gap="sm">
                   {heroActions.map((action) => (
@@ -63,8 +82,43 @@ const OverviewPage = ({ page }: { page: PageMeta }) => {
         </Stack>
       </Card>
 
-      <SectionCard title="At a glance">
-        <FeatureGrid items={[...overviewValueProps, ...supportSnapshot]} />
+      <SectionCard title="What this package does">
+        <FeatureGrid items={overviewValueProps} />
+      </SectionCard>
+
+      <SectionCard title="How it works in one pass">
+        <StepList steps={quickStartSteps} />
+      </SectionCard>
+
+      <SectionCard title="Choose a delivery path">
+        <FeatureGrid items={supportSnapshot} />
+      </SectionCard>
+
+      <SectionCard title="Start with a working config">
+        <Stack gap="md">
+          <Alert
+            color="blue"
+            radius="md"
+            title="Good first move"
+            variant="light"
+          >
+            Use `secondParty: console` or `otel-json` first if you want a local
+            proof before wiring first-party HTTP auth.
+          </Alert>
+          <CodeCard example={quickStartExample} />
+        </Stack>
+      </SectionCard>
+
+      <SectionCard title="What ships today">
+        <FeatureGrid items={overviewSupportHighlights} />
+      </SectionCard>
+
+      <SectionCard title="Known limits up front">
+        <List spacing="sm">
+          {overviewLimits.map((item) => (
+            <List.Item key={item}>{item}</List.Item>
+          ))}
+        </List>
       </SectionCard>
     </PageFrame>
   );
