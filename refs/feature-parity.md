@@ -43,7 +43,7 @@ So:
 | Segment/Datadog side channels | side-channel forwarding | medium-high | fanout path exists; dedicated Datadog/Segment payloads still pending |
 | OTEL metrics/logs | 3P exporter paths | medium-high | implemented as normalized OTEL-like JSON envelope, not native SDK exporter |
 | OTEL traces | model/tool traces | low | no trace/span lifecycle hooks for Claude-equivalent tracing |
-| org/trust/identity enrichment | org opt-out, trust, device/account/email | low | plugin API does not expose these values |
+| org/trust/identity enrichment | org opt-out, trust, identity enrichment | low | plugin API does not expose these values |
 | remote config / feature flags / killswitch | GrowthBook, firstParty, sampling config | low | not exposed; must build separate config system |
 | auth fallback semantics | OAuth/API key fallback, auth-less retry on 401 | low | plugin controls its own sink only, not OpenCode core auth behavior |
 
@@ -162,14 +162,7 @@ Without these, exact Claude send/skip decisions cannot be reproduced.
 
 ### 2) Claude-owned payload enrichment
 
-Claude 1P payload includes values like:
-
-- `device identifier`
-- `email`
-- `auth`
-- `organization identity field`
-- `user.account_uuid`
-- detailed env/process bundle
+Claude 1P payload includes identity-rich and environment-rich fields that are not exposed through the plugin surface.
 
 Plugin API exposes project/directory/worktree/config and some message/runtime context, but not this identity/auth bundle.
 
