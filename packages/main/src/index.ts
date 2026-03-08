@@ -323,8 +323,12 @@ const startReplay = (sink: ReplayableSink): Promise<void> => {
 const buildFirstPartySink = (
   env: EnvProvider,
   channel?: FirstPartyChannelConfig,
+  options?: {
+    defaultEnabled?: boolean;
+  },
 ): ReplayableSink | undefined => {
-  if (channel?.enabled === false) {
+  const enabled = channel?.enabled ?? options?.defaultEnabled ?? true;
+  if (!enabled) {
     return undefined;
   }
 
@@ -351,7 +355,7 @@ const buildFirstPartySink = (
 const buildSecondPartySink = (
   env: EnvProvider,
   channel?: SecondPartyChannelConfig,
-): TelemetrySinkPort | undefined => {
+): ReplayableSink | undefined => {
   if (channel?.enabled === false) {
     return undefined;
   }
@@ -385,7 +389,9 @@ const buildSinkFromChannels = (env: EnvProvider): ReplayableSink => {
     throw new Error("thirdParty telemetry unsupported yet");
   }
 
-  const firstParty = buildFirstPartySink(env, channels?.firstParty);
+  const firstParty = buildFirstPartySink(env, channels?.firstParty, {
+    defaultEnabled: false,
+  });
   const secondParty = buildSecondPartySink(env, channels?.secondParty);
   const sinks = [firstParty, secondParty].filter(
     (sink): sink is ReplayableSink => sink !== undefined,
@@ -396,7 +402,11 @@ const buildSinkFromChannels = (env: EnvProvider): ReplayableSink => {
   }
 
   if (sinks.length === 1) {
-    return sinks[0];
+    const sink = sinks[0];
+    if (!sink) {
+      return new NoopTelemetrySink();
+    }
+    return sink;
   }
 
   return new FanoutTelemetrySink({ sinks });
@@ -415,9 +425,15 @@ export const createTelemetrySinkFromEnv = (
     (env.OPENCODE_TELEMETRY_HTTP_ENDPOINT ? "http" : "otel-json");
 
   if (sinkType === "http") {
-    const firstParty = buildFirstPartySink(env, {
-      sink: "http",
-    });
+    const firstParty = buildFirstPartySink(
+      env,
+      {
+        sink: "http",
+      },
+      {
+        defaultEnabled: true,
+      },
+    );
     if (!firstParty) {
       throw new Error("OPENCODE_TELEMETRY_HTTP_ENDPOINT req for http sink");
     }

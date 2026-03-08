@@ -311,6 +311,46 @@ test("createTelemetrySinkFromEnv builds fanout sink from 1P and 2P", async () =>
   expect(sink.constructor.name).toBe("FanoutTelemetrySink");
 });
 
+test("createTelemetrySinkFromEnv keeps 1P off by default in channel config", async () => {
+  const configPath = `/tmp/opencode-telemetry-1p-default-off-${Date.now()}.jsonc`;
+
+  await Bun.write(
+    configPath,
+    `{
+      "channels": {
+        "firstParty": {
+          "sink": "http",
+          "http": {
+            "default": {
+              "endpoint": "https://telemetry.example.test/anthropic"
+            }
+          }
+        },
+        "secondParty": {
+          "enabled": false,
+          "sink": "otel-json"
+        }
+      }
+    }`,
+  );
+
+  const sink = createTelemetrySinkFromEnv({
+    OPENCODE_TELEMETRY_CONFIG_PATH: configPath,
+  });
+
+  expect(sink.constructor.name).toBe("NoopTelemetrySink");
+});
+
+test("createTelemetrySinkFromEnv still supports legacy env-only 1P opt-in", () => {
+  const sink = createTelemetrySinkFromEnv({
+    OPENCODE_TELEMETRY_SINK: "http",
+    OPENCODE_TELEMETRY_HTTP_ENDPOINT:
+      "https://telemetry.example.test/anthropic",
+  });
+
+  expect(sink.constructor.name).toBe("Anthropic1PBatchSink");
+});
+
 test("createTelemetrySinkFromEnv rejects enabled thirdParty", async () => {
   const configPath = `/tmp/opencode-telemetry-third-party-${Date.now()}.jsonc`;
 

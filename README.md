@@ -78,6 +78,7 @@ Preferred channel config:
 - `channels.secondParty.otel.*`
 - `channels.thirdParty.enabled`
 - `channels.thirdParty.enabled=false` only
+- `channels.firstParty.enabled` defaults `false`; set explicit `true` to opt in to 1P HTTP reporting
 
 ## Covered telemetry
 

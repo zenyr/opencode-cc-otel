@@ -8,8 +8,8 @@
 
   "channels": {
     "firstParty": {
-      // Anthropic-owned endpoints / Claude-side reporting.
-      "enabled": true,
+      // Anthropic-owned endpoints / Claude-side reporting. Opt-in only.
+      "enabled": false,
       "sink": "http",
       "http": {
         "default": {

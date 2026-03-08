@@ -97,7 +97,9 @@
       "additionalProperties": false,
       "properties": {
         "enabled": {
-          "type": "boolean"
+          "type": "boolean",
+          "default": false,
+          "description": "FirstParty reporting defaults off. Set true to opt in."
         },
         "sink": {
           "const": "http",
@@ -142,7 +144,7 @@
     {
       "channels": {
         "firstParty": {
-          "enabled": true,
+          "enabled": false,
           "sink": "http",
           "http": {
             "default": {
