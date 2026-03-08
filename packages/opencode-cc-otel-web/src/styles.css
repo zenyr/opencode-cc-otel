@@ -52,11 +52,6 @@ body {
   min-height: 100vh;
 }
 
-.landing-shell {
-  width: 100%;
-  max-width: 76rem;
-}
-
 .docs-grid {
   display: grid;
   gap: 2rem;
@@ -240,10 +235,6 @@ body {
 }
 
 @media (max-width: 62em) {
-  .landing-shell {
-    max-width: none;
-  }
-
   .docs-grid {
     grid-template-columns: 1fr;
   }

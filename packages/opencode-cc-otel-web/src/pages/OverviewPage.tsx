@@ -36,8 +36,7 @@ const OverviewPage = ({ page }: { page: PageMeta }) => {
               <Stack gap="md">
                 <Text className="page-eyebrow">{page.label}</Text>
                 <Title className="hero-title" order={2}>
-                  Understand what OpenCode emits, where it can go, and what is
-                  still explicit.
+                  Claude-compatible telemetry for OpenCode.
                 </Title>
                 <Text c="dimmed" size="lg">
                   `opencode-cc-otel` is an OpenCode plugin for Claude-compatible
@@ -114,7 +113,7 @@ const OverviewPage = ({ page }: { page: PageMeta }) => {
         <FeatureGrid items={overviewSupportHighlights} />
       </SectionCard>
 
-      <SectionCard title="Known limits up front">
+      <SectionCard title="Known limits">
         <List spacing="sm">
           {overviewLimits.map((item) => (
             <List.Item key={item}>{item}</List.Item>

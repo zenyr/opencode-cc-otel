@@ -148,9 +148,9 @@ const heroSignals: KeyPoint[] = [
 
 const overviewValueProps: FeatureCard[] = [
   {
-    title: "OpenCode plugin, not a collector rewrite",
+    title: "Install as an OpenCode plugin",
     description:
-      "Keep setup close to OpenCode. Add the plugin, then configure delivery.",
+      "Keep setup in OpenCode. Add the plugin, then configure delivery in `telemetry.jsonc`.",
   },
   {
     title: "Claude-compatible payloads stay the contract",

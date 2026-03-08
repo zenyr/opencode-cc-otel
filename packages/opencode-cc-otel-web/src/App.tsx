@@ -70,7 +70,6 @@ const App = () => {
   const schemaHref = useMemo(() => resolveSchemaHref(), []);
   const currentPage =
     pages.find((page) => page.id === activePage) ?? fallbackPageMeta;
-  const isOverviewPage = currentPage.id === "overview";
   const landingHeaderPages = pages.filter((page) =>
     landingHeaderPageIds.includes(page.id),
   );
@@ -118,17 +117,15 @@ const App = () => {
             </Button>
 
             <Group gap="xs" visibleFrom="md">
-              {isOverviewPage
-                ? landingHeaderPages.map((page) => (
-                    <Button
-                      key={page.id}
-                      onClick={() => navigateTo(page.id)}
-                      variant="subtle"
-                    >
-                      {page.label}
-                    </Button>
-                  ))
-                : null}
+              {landingHeaderPages.map((page) => (
+                <Button
+                  key={page.id}
+                  onClick={() => navigateTo(page.id)}
+                  variant="subtle"
+                >
+                  {page.label}
+                </Button>
+              ))}
               <Button
                 component="a"
                 href="https://github.com/zenyr/opencode-cc-otel"
@@ -161,30 +158,19 @@ const App = () => {
       </Drawer>
 
       <AppShell.Main className="site-main">
-        <Container
-          className={isOverviewPage ? "landing-shell" : "docs-shell"}
-          px="md"
-          py="xl"
-          size="xl"
-        >
-          {isOverviewPage ? (
-            renderPage({ page: currentPage, schemaHref })
-          ) : (
-            <>
-              <Box className="docs-grid" visibleFrom="md">
-                <aside className="docs-sidebar">
-                  <Navigation activePage={activePage} onNavigate={navigateTo} />
-                </aside>
-                <main className="docs-content">
-                  {renderPage({ page: currentPage, schemaHref })}
-                </main>
-              </Box>
+        <Container className="docs-shell" px="md" py="xl" size="xl">
+          <Box className="docs-grid" visibleFrom="md">
+            <aside className="docs-sidebar">
+              <Navigation activePage={activePage} onNavigate={navigateTo} />
+            </aside>
+            <main className="docs-content">
+              {renderPage({ page: currentPage, schemaHref })}
+            </main>
+          </Box>
 
-              <Box hiddenFrom="md">
-                {renderPage({ page: currentPage, schemaHref })}
-              </Box>
-            </>
-          )}
+          <Box hiddenFrom="md">
+            {renderPage({ page: currentPage, schemaHref })}
+          </Box>
         </Container>
       </AppShell.Main>
     </AppShell>
