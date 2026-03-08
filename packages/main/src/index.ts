@@ -4,9 +4,9 @@ import { join } from "node:path";
 import type { Hooks, Plugin, PluginInput } from "@opencode-ai/plugin";
 import {
   Anthropic1PBatchSink,
-  ConsoleTelemetrySink,
   DurableTelemetrySink,
   FanoutTelemetrySink,
+  NdjsonFileWriter,
   SecondPartyOtelSink,
   resolveLanguageFromPath,
 } from "@zenyr/telemetry-adapters";
@@ -39,6 +39,12 @@ type TelemetryOtelConfig = {
   resourceAttributes?: Record<string, string>;
 };
 
+type SecondPartyTransport = "file" | "console";
+
+type SecondPartyFileConfig = {
+  path?: string;
+};
+
 type FirstPartyChannelConfig = {
   enabled?: boolean;
   sink: "http";
@@ -47,7 +53,9 @@ type FirstPartyChannelConfig = {
 
 type SecondPartyChannelConfig = {
   enabled?: boolean;
-  sink: "otel-json" | "console";
+  sink: "otel-json";
+  transport?: SecondPartyTransport;
+  file?: SecondPartyFileConfig;
   otel?: TelemetryOtelConfig;
 };
 
@@ -88,6 +96,11 @@ class NoopTelemetrySink implements TelemetrySinkPort {
 
 const DEFAULT_ENV: EnvProvider = typeof Bun !== "undefined" ? Bun.env : {};
 const DEFAULT_CONFIG_PATH_SEGMENTS = ["opencode", "telemetry.jsonc"];
+const DEFAULT_2P_NDJSON_PATH_SEGMENTS = [
+  "opencode",
+  "telemetry",
+  "otel.ndjson",
+];
 
 const readString = (value: unknown): string | undefined => {
   return typeof value === "string" ? value : undefined;
@@ -182,11 +195,11 @@ const resolveBufferPolicy = (
 ): Partial<TelemetryBufferPolicy> => {
   return {
     maxBatchSize: readInt(
-      env.OPENCODE_TELEMETRY_MAX_BATCH_SIZE,
+      env.OPENCODE_CC_OTEL_MAX_BATCH_SIZE,
       DEFAULT_TELEMETRY_BUFFER_POLICY.maxBatchSize,
     ),
     flushIntervalMs: readInt(
-      env.OPENCODE_TELEMETRY_FLUSH_INTERVAL_MS,
+      env.OPENCODE_CC_OTEL_FLUSH_INTERVAL_MS,
       DEFAULT_TELEMETRY_BUFFER_POLICY.flushIntervalMs,
     ),
   };
@@ -287,11 +300,46 @@ const defaultTelemetryConfigPath = (env: EnvProvider): string => {
   return join(configRoot, ...DEFAULT_CONFIG_PATH_SEGMENTS);
 };
 
+const defaultSecondPartyNdjsonPath = (env: EnvProvider): string => {
+  const dataRoot = env.XDG_DATA_HOME ?? join(homedir(), ".local", "share");
+  return join(dataRoot, ...DEFAULT_2P_NDJSON_PATH_SEGMENTS);
+};
+
+const secondPartyFilePath = (
+  env: EnvProvider,
+  channel?: SecondPartyChannelConfig,
+): string => {
+  return (
+    resolveConfigValue(env, channel?.file?.path) ??
+    env.OPENCODE_CC_OTEL_2P_FILE_PATH ??
+    defaultSecondPartyNdjsonPath(env)
+  );
+};
+
+const buildSecondPartyWriter = (
+  env: EnvProvider,
+  channel?: SecondPartyChannelConfig,
+): ((payload: string) => Promise<void>) => {
+  const transport = channel?.transport ?? "file";
+
+  if (transport === "console") {
+    return async (payload) => {
+      console.log(payload);
+    };
+  }
+
+  const writer = new NdjsonFileWriter({
+    path: secondPartyFilePath(env, channel),
+  });
+
+  return (payload) => writer.write(payload);
+};
+
 export const loadTelemetryConfig = (
   env: EnvProvider = DEFAULT_ENV,
 ): TelemetryConfigFile | undefined => {
   const configPath =
-    env.OPENCODE_TELEMETRY_CONFIG_PATH ?? defaultTelemetryConfigPath(env);
+    env.OPENCODE_CC_OTEL_CONFIG_PATH ?? defaultTelemetryConfigPath(env);
 
   if (!existsSync(configPath)) {
     return undefined;
@@ -334,7 +382,7 @@ const buildFirstPartySink = (
 
   const endpoint =
     resolveConfigValue(env, channel?.http?.default?.endpoint) ??
-    env.OPENCODE_TELEMETRY_HTTP_ENDPOINT;
+    env.OPENCODE_CC_OTEL_HTTP_ENDPOINT;
   if (!endpoint) {
     return undefined;
   }
@@ -344,11 +392,11 @@ const buildFirstPartySink = (
       endpoint,
       token:
         resolveConfigValue(env, channel?.http?.default?.token) ??
-        env.OPENCODE_TELEMETRY_HTTP_TOKEN,
-      maxAttempts: readInt(env.OPENCODE_TELEMETRY_HTTP_MAX_ATTEMPTS, 8),
-      backoffMs: readInt(env.OPENCODE_TELEMETRY_HTTP_BACKOFF_MS, 500),
+        env.OPENCODE_CC_OTEL_HTTP_TOKEN,
+      maxAttempts: readInt(env.OPENCODE_CC_OTEL_HTTP_MAX_ATTEMPTS, 8),
+      backoffMs: readInt(env.OPENCODE_CC_OTEL_HTTP_BACKOFF_MS, 500),
     }),
-    env.OPENCODE_TELEMETRY_QUEUE_DIR,
+    env.OPENCODE_CC_OTEL_QUEUE_DIR,
   );
 };
 
@@ -360,23 +408,20 @@ const buildSecondPartySink = (
     return undefined;
   }
 
-  if (channel?.sink === "console") {
-    return new ConsoleTelemetrySink();
-  }
-
   return new SecondPartyOtelSink({
+    write: buildSecondPartyWriter(env, channel),
     serviceName:
       resolveConfigValue(env, channel?.otel?.serviceName) ??
-      env.OPENCODE_TELEMETRY_SERVICE_NAME,
+      env.OPENCODE_CC_OTEL_SERVICE_NAME,
     serviceVersion:
       resolveConfigValue(env, channel?.otel?.serviceVersion) ??
-      env.OPENCODE_TELEMETRY_SERVICE_VERSION,
+      env.OPENCODE_CC_OTEL_SERVICE_VERSION,
     logsChannelId:
       resolveConfigValue(env, channel?.otel?.logsChannelId) ??
-      env.OPENCODE_TELEMETRY_LOGS_CHANNEL_ID,
+      env.OPENCODE_CC_OTEL_LOGS_CHANNEL_ID,
     metricsChannelId:
       resolveConfigValue(env, channel?.otel?.metricsChannelId) ??
-      env.OPENCODE_TELEMETRY_METRICS_CHANNEL_ID,
+      env.OPENCODE_CC_OTEL_METRICS_CHANNEL_ID,
     resourceAttributes: channel?.otel?.resourceAttributes,
   });
 };
@@ -421,8 +466,8 @@ export const createTelemetrySinkFromEnv = (
   }
 
   const sinkType =
-    env.OPENCODE_TELEMETRY_SINK ??
-    (env.OPENCODE_TELEMETRY_HTTP_ENDPOINT ? "http" : "otel-json");
+    env.OPENCODE_CC_OTEL_SINK ??
+    (env.OPENCODE_CC_OTEL_HTTP_ENDPOINT ? "http" : "otel-json");
 
   if (sinkType === "http") {
     const firstParty = buildFirstPartySink(
@@ -435,7 +480,7 @@ export const createTelemetrySinkFromEnv = (
       },
     );
     if (!firstParty) {
-      throw new Error("OPENCODE_TELEMETRY_HTTP_ENDPOINT req for http sink");
+      throw new Error("OPENCODE_CC_OTEL_HTTP_ENDPOINT req for http sink");
     }
     return firstParty;
   }
@@ -449,7 +494,12 @@ export const createTelemetrySinkFromEnv = (
   }
 
   if (sinkType === "console") {
-    return new ConsoleTelemetrySink();
+    return (
+      buildSecondPartySink(env, {
+        sink: "otel-json",
+        transport: "console",
+      }) ?? new NoopTelemetrySink()
+    );
   }
 
   throw new Error(`Unsupported telemetry sink: ${sinkType}`);

@@ -2,12 +2,22 @@
 
 OpenCode plugin monorepo for Claude Code telemetry payload compatibility work.
 
+Reference semantics live in `refs/telemetry-config-model.md`. Treat this README as a derived quick summary.
+
 ## Goal
 
 - Match Claude Code telemetry payload spec as closely as OpenCode plugin surface allows
 - Keep Claude-compatible payload shape as canonical target, not `opencode.*` normalized events
 - Document exact gaps where OpenCode plugin API cannot expose Claude-required fields
 - Support `firstParty` and `secondParty` today, keep `thirdParty` explicit but unsupported
+
+## Terms
+
+- `channel`: logical reporting lane by ownership and intent
+- `sink`: payload/export contract
+- `transport`: delivery medium
+- 2P config uses `secondParty.sink = "otel-json"` plus explicit `secondParty.transport`
+- local-safe default is append-only NDJSON file transport
 
 ## Channel model
 
@@ -33,32 +43,39 @@ OpenCode plugin monorepo for Claude Code telemetry payload compatibility work.
 
 - Shared Claude-compatible event and metric contracts live in `packages/domain`
 - Application layer supports deterministic buffering + explicit flush
-- Adapters provide 1P Anthropic batch, 2P OTEL JSON, console, in-memory, durable queue, and fanout sinks
+- Adapters provide 1P Anthropic batch, 2P OTEL JSON, NDJSON file writer, console writer, in-memory, durable queue, and fanout sinks
 - Main package maps OpenCode hooks to supported Claude prompt/tool/command/API/diff telemetry paths
 - Monorepo verification covers domain, application, adapters, and main package contracts
 - Exact Claude parity is still partial where plugin API lacks source fields
 
+Current 2P recommendation:
+
+- prefer `otel-json` for payload contract
+- prefer `transport = "file"` for local and CI usage
+- use `console` only when direct stdout output is explicitly wanted
+
 ## Runtime env
 
-- `OPENCODE_TELEMETRY_SINK`: `console`, `http`, or `otel-json`
-- `OPENCODE_TELEMETRY_HTTP_ENDPOINT`: required when sink is `http`
-- `OPENCODE_TELEMETRY_HTTP_TOKEN`: optional bearer token for HTTP sink
-- `OPENCODE_TELEMETRY_HTTP_MAX_ATTEMPTS`: retry cap, default `8`
-- `OPENCODE_TELEMETRY_HTTP_BACKOFF_MS`: base backoff, default `500`
-- `OPENCODE_TELEMETRY_QUEUE_DIR`: optional disk queue dir for failed batch replay
-- `OPENCODE_TELEMETRY_SERVICE_NAME`: service name for `otel-json`, default `claude-code`
-- `OPENCODE_TELEMETRY_SERVICE_VERSION`: service version for `otel-json`, default `0.1.0`
-- `OPENCODE_TELEMETRY_LOGS_CHANNEL_ID`: logs channel id for `otel-json`, default `otel_3p_logs`
-- `OPENCODE_TELEMETRY_METRICS_CHANNEL_ID`: metrics channel id for `otel-json`, default `otel_3p_metrics`
-- `OPENCODE_TELEMETRY_MAX_BATCH_SIZE`: app buffer size, default `1`
-- `OPENCODE_TELEMETRY_FLUSH_INTERVAL_MS`: reserved policy value, default `0`
+- `OPENCODE_CC_OTEL_SINK`: `console`, `http`, or `otel-json`
+- `OPENCODE_CC_OTEL_HTTP_ENDPOINT`: required when sink is `http`
+- `OPENCODE_CC_OTEL_HTTP_TOKEN`: optional bearer token for HTTP sink
+- `OPENCODE_CC_OTEL_2P_FILE_PATH`: optional NDJSON path override for 2P file transport
+- `OPENCODE_CC_OTEL_HTTP_MAX_ATTEMPTS`: retry cap, default `8`
+- `OPENCODE_CC_OTEL_HTTP_BACKOFF_MS`: base backoff, default `500`
+- `OPENCODE_CC_OTEL_QUEUE_DIR`: optional disk queue dir for failed batch replay
+- `OPENCODE_CC_OTEL_SERVICE_NAME`: service name for `otel-json`, default `claude-code`
+- `OPENCODE_CC_OTEL_SERVICE_VERSION`: service version for `otel-json`, default `0.1.0`
+- `OPENCODE_CC_OTEL_LOGS_CHANNEL_ID`: logs channel id for `otel-json`, default `otel_3p_logs`
+- `OPENCODE_CC_OTEL_METRICS_CHANNEL_ID`: metrics channel id for `otel-json`, default `otel_3p_metrics`
+- `OPENCODE_CC_OTEL_MAX_BATCH_SIZE`: app buffer size, default `1`
+- `OPENCODE_CC_OTEL_FLUSH_INTERVAL_MS`: reserved policy value, default `0`
 
 Legacy env-only sink selection still works, but channel-aware JSONC config should be treated as the preferred direction.
 
 ## Config file
 
 - XDG config path: `~/.config/opencode/telemetry.jsonc`
-- override path: `OPENCODE_TELEMETRY_CONFIG_PATH`
+- override path: `OPENCODE_CC_OTEL_CONFIG_PATH`
 - example config: `telemetry.jsonc.example`
 - schema source: `schemas/telemetry.schema.json`
 - GitHub Pages schema URL: `https://zenyr.github.io/opencode-cc-otel/schemas/telemetry.schema.json`
@@ -75,10 +92,17 @@ Preferred channel config:
 - `channels.firstParty.http.*`
 - `channels.secondParty.enabled`
 - `channels.secondParty.sink`
+- `channels.secondParty.transport`
+- `channels.secondParty.file.path`
 - `channels.secondParty.otel.*`
 - `channels.thirdParty.enabled`
 - `channels.thirdParty.enabled=false` only
 - `channels.firstParty.enabled` defaults `false`; set explicit `true` to opt in to 1P HTTP reporting
+
+SSOT note:
+
+- semantics and naming rules live in `refs/telemetry-config-model.md`
+- schema describes the current machine-valid contract: 2P `sink = "otel-json"` plus explicit transport
 
 ## Covered telemetry
 
@@ -105,6 +129,7 @@ Current emitted Claude-compatible outputs:
 - 1P sink retries one `401` once without auth
 - Durable sink stores failed 1P batches on disk and replays them before new publish
 - 2P sink emits Claude-style OTEL JSON logs and metrics
+- 2P default transport appends one NDJSON payload per line to file
 - Channel-aware config can fan out to enabled `firstParty` and `secondParty` together
 - `thirdParty` stays unsupported and must remain disabled
 
@@ -134,6 +159,7 @@ curl -I https://zenyr.github.io/opencode-cc-otel/schemas/telemetry.schema.json
 
 ## Spec refs in this repo
 
+- `refs/telemetry-config-model.md`
 - `refs/metrics-parity-notes.md`
 - `refs/docs/claude/telemetry-portable-summary.md`
 - `refs/architecture.md`

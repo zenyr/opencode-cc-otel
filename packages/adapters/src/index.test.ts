@@ -10,6 +10,7 @@ import {
   FanoutTelemetrySink,
   HttpTelemetrySink,
   InMemoryTelemetrySink,
+  NdjsonFileWriter,
   SecondPartyOtelSink,
   createAnthropic1PBatchEnvelope,
   createSecondPartyLogEnvelope,
@@ -317,4 +318,14 @@ test("SecondPartyOtelSink writes one payload per event or metric", async () => {
       },
     ],
   });
+});
+
+test("NdjsonFileWriter appends one line per payload", async () => {
+  const filePath = `/tmp/opencode-cc-telemetry-${Date.now()}-${Math.random().toString(36).slice(2, 8)}/otel.ndjson`;
+  const writer = new NdjsonFileWriter({ path: filePath });
+
+  await writer.write('{"a":1}');
+  await writer.write('{"b":2}');
+
+  expect(await Bun.file(filePath).text()).toBe('{"a":1}\n{"b":2}\n');
 });

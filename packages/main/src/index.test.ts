@@ -235,6 +235,10 @@ test("loadTelemetryConfig reads channel-aware JSONC config", async () => {
         "secondParty": {
           "enabled": true,
           "sink": "otel-json",
+          "transport": "file",
+          "file": {
+            "path": "/tmp/opencode-telemetry-load-test.ndjson"
+          },
           "otel": {
             "logsChannelId": "otel_3p_logs",
             "metricsChannelId": "otel_3p_metrics"
@@ -249,7 +253,7 @@ test("loadTelemetryConfig reads channel-aware JSONC config", async () => {
 
   expect(
     loadTelemetryConfig({
-      OPENCODE_TELEMETRY_CONFIG_PATH: configPath,
+      OPENCODE_CC_OTEL_CONFIG_PATH: configPath,
     }),
   ).toEqual({
     channels: {
@@ -265,6 +269,10 @@ test("loadTelemetryConfig reads channel-aware JSONC config", async () => {
       secondParty: {
         enabled: true,
         sink: "otel-json",
+        transport: "file",
+        file: {
+          path: "/tmp/opencode-telemetry-load-test.ndjson",
+        },
         otel: {
           logsChannelId: "otel_3p_logs",
           metricsChannelId: "otel_3p_metrics",
@@ -295,7 +303,11 @@ test("createTelemetrySinkFromEnv builds fanout sink from 1P and 2P", async () =>
         },
         "secondParty": {
           "enabled": true,
-          "sink": "otel-json"
+          "sink": "otel-json",
+          "transport": "file",
+          "file": {
+            "path": "/tmp/opencode-telemetry-fanout.ndjson"
+          }
         },
         "thirdParty": {
           "enabled": false
@@ -305,7 +317,7 @@ test("createTelemetrySinkFromEnv builds fanout sink from 1P and 2P", async () =>
   );
 
   const sink = createTelemetrySinkFromEnv({
-    OPENCODE_TELEMETRY_CONFIG_PATH: configPath,
+    OPENCODE_CC_OTEL_CONFIG_PATH: configPath,
   });
 
   expect(sink.constructor.name).toBe("FanoutTelemetrySink");
@@ -328,14 +340,15 @@ test("createTelemetrySinkFromEnv keeps 1P off by default in channel config", asy
         },
         "secondParty": {
           "enabled": false,
-          "sink": "otel-json"
+          "sink": "otel-json",
+          "transport": "file"
         }
       }
     }`,
   );
 
   const sink = createTelemetrySinkFromEnv({
-    OPENCODE_TELEMETRY_CONFIG_PATH: configPath,
+    OPENCODE_CC_OTEL_CONFIG_PATH: configPath,
   });
 
   expect(sink.constructor.name).toBe("NoopTelemetrySink");
@@ -343,9 +356,8 @@ test("createTelemetrySinkFromEnv keeps 1P off by default in channel config", asy
 
 test("createTelemetrySinkFromEnv still supports legacy env-only 1P opt-in", () => {
   const sink = createTelemetrySinkFromEnv({
-    OPENCODE_TELEMETRY_SINK: "http",
-    OPENCODE_TELEMETRY_HTTP_ENDPOINT:
-      "https://telemetry.example.test/anthropic",
+    OPENCODE_CC_OTEL_SINK: "http",
+    OPENCODE_CC_OTEL_HTTP_ENDPOINT: "https://telemetry.example.test/anthropic",
   });
 
   expect(sink.constructor.name).toBe("Anthropic1PBatchSink");
@@ -367,9 +379,46 @@ test("createTelemetrySinkFromEnv rejects enabled thirdParty", async () => {
 
   expect(() => {
     createTelemetrySinkFromEnv({
-      OPENCODE_TELEMETRY_CONFIG_PATH: configPath,
+      OPENCODE_CC_OTEL_CONFIG_PATH: configPath,
     });
   }).toThrow("thirdParty telemetry unsupported yet");
+});
+
+test("createTelemetrySinkFromEnv writes 2P otel-json to ndjson file by default", async () => {
+  const filePath = `/tmp/opencode-telemetry-2p-${Date.now()}.ndjson`;
+  const sink = createTelemetrySinkFromEnv({
+    OPENCODE_CC_OTEL_2P_FILE_PATH: filePath,
+  });
+
+  await sink.publish([
+    {
+      kind: "event",
+      channel: "secondParty",
+      name: TELEMETRY_EVENT_NAMES.secondParty.userPrompt,
+      timestamp: "1970-01-01T00:00:00.001Z",
+      sessionId: "session-1",
+      attributes: {
+        prompt_length: 11,
+      },
+    },
+  ]);
+
+  const lines = (await Bun.file(filePath).text()).trim().split("\n");
+
+  expect(lines).toHaveLength(1);
+  expect(JSON.parse(lines[0] ?? "null")).toEqual({
+    body: "claude_code.user_prompt",
+    attributes: {
+      "channel.id": "otel_3p_logs",
+      "event.name": "user_prompt",
+      "event.timestamp": "1970-01-01T00:00:00.001Z",
+      "event.sequence": expect.any(String),
+      "service.name": "claude-code",
+      "service.version": "0.1.0",
+      "session.id": "session-1",
+      prompt_length: "11",
+    },
+  });
 });
 
 test("hook startup awaits queued replay before recording", async () => {

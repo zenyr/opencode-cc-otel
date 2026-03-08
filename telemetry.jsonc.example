@@ -14,17 +14,22 @@
       "http": {
         "default": {
           "endpoint": "https://api.anthropic.com/api/event_logging/batch",
-          "token": "env:OPENCODE_TELEMETRY_HTTP_TOKEN_1P"
+          "token": "env:OPENCODE_CC_OTEL_HTTP_TOKEN_1P"
         }
       }
     },
     "secondParty": {
       // Core repo goal: OTEL reporting for team / enterprise usage.
+      // Local-safe default is OTEL JSON over append-only NDJSON file transport.
       "enabled": true,
       "sink": "otel-json",
+      "transport": "file",
+      "file": {
+        "path": "env:OPENCODE_CC_OTEL_2P_FILE_PATH"
+      },
       "otel": {
         "serviceName": "claude-code",
-        "serviceVersion": "env:OPENCODE_TELEMETRY_SERVICE_VERSION",
+        "serviceVersion": "env:OPENCODE_CC_OTEL_SERVICE_VERSION",
         "logsChannelId": "otel_3p_logs",
         "metricsChannelId": "otel_3p_metrics",
         "resourceAttributes": {

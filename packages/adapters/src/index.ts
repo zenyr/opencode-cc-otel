@@ -1,4 +1,5 @@
-import { mkdir, readdir, rm } from "node:fs/promises";
+import { appendFile, mkdir, readdir, rm } from "node:fs/promises";
+import { dirname } from "node:path";
 import type { TelemetrySinkPort } from "@zenyr/telemetry-application";
 import type {
   TelemetryMetricRecord,
@@ -33,6 +34,14 @@ export type DurableTelemetrySinkOptions = {
 
 export type FanoutTelemetrySinkOptions = {
   sinks: TelemetrySinkPort[];
+};
+
+export type TextLineWriter = {
+  write: (line: string) => Promise<void>;
+};
+
+export type NdjsonFileWriterOptions = {
+  path: string;
 };
 
 export type SecondPartyOtelSinkOptions = {
@@ -309,6 +318,23 @@ export class ConsoleTelemetrySink implements TelemetrySinkPort {
     for (const event of events) {
       console.log(JSON.stringify(event));
     }
+  }
+}
+
+export class NdjsonFileWriter implements TextLineWriter {
+  #path: string;
+
+  constructor(options: NdjsonFileWriterOptions) {
+    if (!options.path) {
+      throw new Error("NdjsonFileWriter path req");
+    }
+
+    this.#path = options.path;
+  }
+
+  async write(line: string): Promise<void> {
+    await mkdir(dirname(this.#path), { recursive: true });
+    await appendFile(this.#path, `${line}\n`, "utf8");
   }
 }
 

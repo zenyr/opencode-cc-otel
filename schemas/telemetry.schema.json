@@ -35,7 +35,7 @@
     "tokenValue": {
       "type": "string",
       "minLength": 1,
-      "description": "Bearer token or env indirection like env:OPENCODE_TELEMETRY_HTTP_TOKEN."
+      "description": "Bearer token or env indirection like env:OPENCODE_CC_OTEL_HTTP_TOKEN."
     },
     "httpTarget": {
       "type": "object",
@@ -92,6 +92,17 @@
         }
       }
     },
+    "secondPartyFileConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "NDJSON file path for secondParty file transport. Supports env:NAME."
+        }
+      }
+    },
     "firstPartyChannel": {
       "type": "object",
       "additionalProperties": false,
@@ -103,7 +114,7 @@
         },
         "sink": {
           "const": "http",
-          "description": "Anthropic 1P event logging uses HTTP batch only."
+          "description": "Anthropic 1P payload contract. Current delivery is HTTP batch only."
         },
         "http": {
           "$ref": "#/$defs/httpConfig"
@@ -119,9 +130,16 @@
           "type": "boolean"
         },
         "sink": {
+          "const": "otel-json",
+          "description": "SecondParty payload contract. Claude-style OTEL JSON logs and metrics."
+        },
+        "transport": {
           "type": "string",
-          "enum": ["otel-json", "console"],
-          "description": "SecondParty team or enterprise reporting sink."
+          "enum": ["file", "console"],
+          "description": "SecondParty delivery medium. `file` is the default local-safe path; `console` remains available for direct output."
+        },
+        "file": {
+          "$ref": "#/$defs/secondPartyFileConfig"
         },
         "otel": {
           "$ref": "#/$defs/otelConfig"
@@ -149,16 +167,20 @@
           "http": {
             "default": {
               "endpoint": "https://api.anthropic.com/api/event_logging/batch",
-              "token": "env:OPENCODE_TELEMETRY_HTTP_TOKEN_1P"
+              "token": "env:OPENCODE_CC_OTEL_HTTP_TOKEN_1P"
             }
           }
         },
         "secondParty": {
           "enabled": true,
           "sink": "otel-json",
+          "transport": "file",
+          "file": {
+            "path": "env:OPENCODE_CC_OTEL_2P_FILE_PATH"
+          },
           "otel": {
             "serviceName": "claude-code",
-            "serviceVersion": "env:OPENCODE_TELEMETRY_SERVICE_VERSION",
+            "serviceVersion": "env:OPENCODE_CC_OTEL_SERVICE_VERSION",
             "logsChannelId": "otel_3p_logs",
             "metricsChannelId": "otel_3p_metrics",
             "resourceAttributes": {
