@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://zenyr.github.io/opencode-cc-telemetry/schemas/telemetry.schema.json",
+  "$id": "https://zenyr.github.io/opencode-cc-otel/schemas/telemetry.schema.json",
   "title": "OpenCode Telemetry Config",
   "type": "object",
   "additionalProperties": false,

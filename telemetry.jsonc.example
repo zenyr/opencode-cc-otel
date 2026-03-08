@@ -1,6 +1,6 @@
 {
   // If repo or Pages path changes, update this URL.
-  "$schema": "https://zenyr.github.io/opencode-cc-telemetry/schemas/telemetry.schema.json",
+  "$schema": "https://zenyr.github.io/opencode-cc-otel/schemas/telemetry.schema.json",
 
   // Copy to:
   // - ~/.config/opencode/telemetry.jsonc

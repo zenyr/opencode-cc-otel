@@ -15,7 +15,7 @@ OpenCode telemetry plugin monorepo.
 - Application layer supports deterministic buffering + explicit flush
 - Adapters provide console, in-memory, HTTP, durable queue, fanout, and OTEL JSON sinks
 - Main package wires OpenCode hooks to prompt/tool/command/session/API telemetry paths
-- Monorepo verification covers domain/app/adapter/main contracts with 44 tests
+- Monorepo verification covers domain, application, adapters, and main package contracts
 
 ## Runtime env
 
@@ -38,7 +38,7 @@ OpenCode telemetry plugin monorepo.
 - override path: `OPENCODE_TELEMETRY_CONFIG_PATH`
 - example config: `telemetry.jsonc.example`
 - schema source: `schemas/telemetry.schema.json`
-- GitHub Pages schema URL: `https://zenyr.github.io/opencode-cc-telemetry/schemas/telemetry.schema.json`
+- GitHub Pages schema URL: `https://zenyr.github.io/opencode-cc-otel/schemas/telemetry.schema.json`
 - if repo or Pages path changes, update `$id` in `schemas/telemetry.schema.json` and `$schema` in `telemetry.jsonc.example`
 
 Supported HTTP routing config:
