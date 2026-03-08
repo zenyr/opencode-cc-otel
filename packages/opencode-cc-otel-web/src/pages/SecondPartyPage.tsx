@@ -7,15 +7,15 @@ import {
   secondPartyAttrs,
   secondPartyEnvVars,
   secondPartyExample,
-  secondPartyModes,
+  secondPartyTransports,
 } from "../content";
 import type { PageMeta } from "../content";
 
 const SecondPartyPage = ({ page }: { page: PageMeta }) => {
   return (
     <PageFrame page={page}>
-      <SectionCard title="Supported modes">
-        <SimpleTable rows={secondPartyModes} valueLabel="Use" />
+      <SectionCard title="Transport values">
+        <SimpleTable rows={secondPartyTransports} valueLabel="Use" />
       </SectionCard>
 
       <SectionCard title="OTEL JSON example">

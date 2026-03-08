@@ -71,6 +71,8 @@ Recommended normalized attrs:
 - mark missing Claude fields explicitly when plugin API cannot provide them
 - keep secrets and identity out of default public examples
 - route by provider/model when needed, but keep routing config user-controlled
+- keep config language strict: channel != sink != transport
+- prefer 2P OTEL JSON over append-only NDJSON file transport for local delivery; console output is debug-only
 
 ## Repo implications
 

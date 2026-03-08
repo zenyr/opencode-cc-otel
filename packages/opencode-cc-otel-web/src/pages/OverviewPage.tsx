@@ -43,9 +43,9 @@ const OverviewPage = ({ page }: { page: PageMeta }) => {
                 <Text c="dimmed" size="lg">
                   <Code>opencode-cc-otel</Code> is an OpenCode plugin for
                   Claude-compatible telemetry. Add one plugin entry, add{" "}
-                  <Code>telemetry.jsonc</Code>, then start with 2P console or
-                  OTEL JSON. Turn on 1P only if you need Anthropic-side
-                  reporting.
+                  <Code>telemetry.jsonc</Code>, then start with 2P{" "}
+                  <Code>otel-json</Code> over <Code>file</Code> transport. Turn
+                  on 1P only if you need Anthropic-side reporting.
                 </Text>
                 <Group gap="sm">
                   {heroActions.map((action) => (
@@ -105,8 +105,9 @@ const OverviewPage = ({ page }: { page: PageMeta }) => {
             title="Good first move"
             variant="light"
           >
-            Use <Code>secondParty: console</Code> or <Code>otel-json</Code>{" "}
-            first if you want a local proof before wiring first-party HTTP auth.
+            Use <Code>sink = "otel-json"</Code> plus{" "}
+            <Code>transport = "file"</Code> first if you want a local proof
+            before wiring first-party HTTP auth.
           </Alert>
           <CodeCard example={quickStartExample} />
         </Stack>

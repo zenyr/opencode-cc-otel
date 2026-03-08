@@ -24,6 +24,9 @@ const ConfigModelPage = ({
           <Text c="dimmed" size="sm">
             Schema: <Code>{schemaHref}</Code>
           </Text>
+          <Text c="dimmed" size="sm">
+            Semantics: <Code>refs/telemetry-config-model.md</Code>
+          </Text>
         </Stack>
       </SectionCard>
     </PageFrame>

@@ -50,6 +50,7 @@ Full reverse-engineering notes are kept locally and are excluded from git.
 - treat Claude payload fields and event names as primary contract when exposed by OpenCode hooks
 - avoid introducing repo-local event names as external contract unless used only as temporary internal translation
 - keep first-party, second-party, and third-party delivery as separate channel controls, not one global sink switch
+- keep config terms strict: `channel` for logical lane, `sink` for payload contract, `transport` for delivery medium
 - model prompt intake as first-class telemetry
 - record tool lifecycle with duration and file/language metadata when available
 - record API usage and API error separately
@@ -57,6 +58,7 @@ Full reverse-engineering notes are kept locally and are excluded from git.
 - aggregate diff/file activity into simple portable attrs
 - support buffered HTTP publish, retry/backoff, and durable replay
 - expose OTEL-friendly sink output as a downstream adapter, not as replacement for Claude-compatible capture
+- prefer 2P `otel-json` over append-only NDJSON file transport for local/debug-friendly delivery; treat console delivery as debug-only
 
 ## Non-goals for public docs
 

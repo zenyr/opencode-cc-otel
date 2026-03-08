@@ -95,11 +95,11 @@ const pages: PageMeta[] = [
     title: "Wire first-party HTTP delivery",
   },
   {
-    description: "Team-side OTEL or console setup.",
+    description: "Team-side sink contract and local delivery guidance.",
     group: "Channels",
     id: "second-party",
     label: "Second-Party",
-    title: "Wire second-party OTEL or console delivery",
+    title: "Wire second-party sink config",
   },
   {
     description: "Supported outputs and current gaps.",
@@ -148,7 +148,8 @@ const heroSignals: KeyPoint[] = [
   },
   {
     title: "One first proof",
-    description: "Start with 2P console or OTEL JSON. 1P is opt-in.",
+    description:
+      "Start with 2P `otel-json` over file transport. 1P stays opt-in.",
   },
 ];
 
@@ -179,7 +180,7 @@ const supportSnapshot: FeatureCard[] = [
   {
     title: "Second-party (2P)",
     description:
-      "Send Claude-style OTEL JSON or console output to your own tooling or local checks.",
+      "Send Claude-style OTEL JSON to your own tooling. Default local transport is append-only NDJSON file output.",
   },
   {
     title: "Third-party (3P)",
@@ -223,13 +224,14 @@ const quickStartSteps: StepDef[] = [
   },
   {
     title: "Choose a first proof",
-    body: "Start with 2P console for local checks. Turn on 1P HTTP only when you need Anthropic-side reporting.",
+    body: "Start with 2P `otel-json` over file transport. Keep 1P HTTP off until you need Anthropic-side reporting.",
   },
 ];
 
 const quickStartExample: CodeExample = {
   title: "Minimal config files",
-  description: "Create these two files, then start with 2P output.",
+  description:
+    "Create these two files, then start with 2P `otel-json` over file transport.",
   files: [
     {
       path: "~/.config/opencode/opencode.jsonc",
@@ -252,7 +254,11 @@ const quickStartExample: CodeExample = {
         "    },",
         '    "secondParty": {',
         '      "enabled": true,',
-        '      "sink": "otel-json"',
+        '      "sink": "otel-json",',
+        '      "transport": "file",',
+        '      "file": {',
+        '        "path": "env:OPENCODE_CC_OTEL_2P_FILE_PATH"',
+        "      }",
         "    },",
         '    "thirdParty": {',
         '      "enabled": false',
@@ -267,10 +273,16 @@ const quickStartExample: CodeExample = {
 const quickStartChecks = [
   '`~/.config/opencode/opencode.jsonc` should include `"plugin": ["opencode-cc-otel"]`.',
   "`telemetry.jsonc` should point `$schema` to the published schema URL.",
-  "Start with `secondParty: console` or `otel-json`. Leave 1P off until you need Anthropic-side reporting.",
+  'Start with `channels.secondParty = { sink: "otel-json", transport: "file" }`. Leave 1P off until you need Anthropic-side reporting.',
 ];
 
 const configSurfaces: RowDef[] = [
+  {
+    name: "SSOT refs doc",
+    value: "Source semantics",
+    description:
+      "Use `refs/telemetry-config-model.md` for channel, sink, and transport terms.",
+  },
   {
     name: "XDG config file",
     value: "Primary path",
@@ -290,7 +302,8 @@ const channelModelCards: FeatureCard[] = [
   },
   {
     title: "secondParty",
-    description: "Team-side reporting via `otel-json` or `console`.",
+    description:
+      "Team-side reporting via `otel-json`, with explicit transport selection. Default local transport is file/ndjson.",
   },
   {
     title: "thirdParty",
@@ -313,7 +326,7 @@ const configPaths: RowDef[] = [
   {
     name: "Override env",
     value: "optional",
-    description: "`OPENCODE_TELEMETRY_CONFIG_PATH`",
+    description: "`OPENCODE_CC_OTEL_CONFIG_PATH`",
   },
 ];
 
@@ -337,22 +350,22 @@ const firstPartyRules: RowDef[] = [
 
 const firstPartyEnvVars: RowDef[] = [
   {
-    name: "OPENCODE_TELEMETRY_HTTP_TOKEN_1P",
+    name: "OPENCODE_CC_OTEL_HTTP_TOKEN_1P",
     value: "recommended",
     description: "Token indirection for Anthropic batch auth.",
   },
   {
-    name: "OPENCODE_TELEMETRY_HTTP_MAX_ATTEMPTS",
+    name: "OPENCODE_CC_OTEL_HTTP_MAX_ATTEMPTS",
     value: "8",
     description: "Retry cap for transient first-party HTTP failures.",
   },
   {
-    name: "OPENCODE_TELEMETRY_HTTP_BACKOFF_MS",
+    name: "OPENCODE_CC_OTEL_HTTP_BACKOFF_MS",
     value: "500",
     description: "Quadratic retry base used with `baseMs * attempts^2`.",
   },
   {
-    name: "OPENCODE_TELEMETRY_QUEUE_DIR",
+    name: "OPENCODE_CC_OTEL_QUEUE_DIR",
     value: "optional",
     description: "Disk queue for failed batch replay.",
   },
@@ -371,7 +384,7 @@ const firstPartyExample: CodeExample = {
     '      "http": {',
     '        "default": {',
     '          "endpoint": "https://api.anthropic.com/api/event_logging/batch",',
-    '          "token": "env:OPENCODE_TELEMETRY_HTTP_TOKEN_1P"',
+    '          "token": "env:OPENCODE_CC_OTEL_HTTP_TOKEN_1P"',
     "        }",
     "      }",
     "    }",
@@ -380,16 +393,18 @@ const firstPartyExample: CodeExample = {
   ].join("\n"),
 };
 
-const secondPartyModes: RowDef[] = [
+const secondPartyTransports: RowDef[] = [
   {
-    name: "otel-json",
-    value: "primary",
-    description: "Claude-style OTEL JSON logs and metrics.",
+    name: "file",
+    value: "default",
+    description:
+      "Append-only NDJSON file output. Local-safe default for TUI, CI, and replayable inspection.",
   },
   {
     name: "console",
-    value: "local inspect",
-    description: "Simple local output.",
+    value: "explicit only",
+    description:
+      "Direct stdout output. Use only when console delivery is intentionally desired.",
   },
 ];
 
@@ -418,22 +433,27 @@ const secondPartyAttrs: RowDef[] = [
 
 const secondPartyEnvVars: RowDef[] = [
   {
-    name: "OPENCODE_TELEMETRY_SERVICE_NAME",
+    name: "OPENCODE_CC_OTEL_2P_FILE_PATH",
+    value: "XDG data path",
+    description: "Optional override for 2P NDJSON file output path.",
+  },
+  {
+    name: "OPENCODE_CC_OTEL_SERVICE_NAME",
     value: "claude-code",
     description: "Fallback service name for `otel-json` output.",
   },
   {
-    name: "OPENCODE_TELEMETRY_SERVICE_VERSION",
+    name: "OPENCODE_CC_OTEL_SERVICE_VERSION",
     value: "0.1.0",
     description: "Fallback service version for `otel-json` output.",
   },
   {
-    name: "OPENCODE_TELEMETRY_LOGS_CHANNEL_ID",
+    name: "OPENCODE_CC_OTEL_LOGS_CHANNEL_ID",
     value: "otel_3p_logs",
     description: "Fallback OTEL logs channel id.",
   },
   {
-    name: "OPENCODE_TELEMETRY_METRICS_CHANNEL_ID",
+    name: "OPENCODE_CC_OTEL_METRICS_CHANNEL_ID",
     value: "otel_3p_metrics",
     description: "Fallback OTEL metrics channel id.",
   },
@@ -441,7 +461,8 @@ const secondPartyEnvVars: RowDef[] = [
 
 const secondPartyExample: CodeExample = {
   title: "Second-party OTEL JSON channel",
-  description: "Use when downstream expects Claude-style OTEL JSON.",
+  description:
+    "Use when downstream expects Claude-style OTEL JSON over explicit transport.",
   code: [
     "{",
     '  "$schema": "https://zenyr.github.io/opencode-cc-otel/schemas/telemetry.schema.json",',
@@ -449,9 +470,13 @@ const secondPartyExample: CodeExample = {
     '    "secondParty": {',
     '      "enabled": true,',
     '      "sink": "otel-json",',
+    '      "transport": "file",',
+    '      "file": {',
+    '        "path": "env:OPENCODE_CC_OTEL_2P_FILE_PATH"',
+    "      },",
     '      "otel": {',
     '        "serviceName": "claude-code",',
-    '        "serviceVersion": "env:OPENCODE_TELEMETRY_SERVICE_VERSION",',
+    '        "serviceVersion": "env:OPENCODE_CC_OTEL_SERVICE_VERSION",',
     '        "logsChannelId": "otel_3p_logs",',
     '        "metricsChannelId": "otel_3p_metrics",',
     '        "resourceAttributes": {',
@@ -523,17 +548,17 @@ const runtimeBehaviors: FeatureCard[] = [
 
 const runtimeSettings: RowDef[] = [
   {
-    name: "OPENCODE_TELEMETRY_MAX_BATCH_SIZE",
+    name: "OPENCODE_CC_OTEL_MAX_BATCH_SIZE",
     value: "1",
     description: "App buffer size. Default is near-synchronous.",
   },
   {
-    name: "OPENCODE_TELEMETRY_FLUSH_INTERVAL_MS",
+    name: "OPENCODE_CC_OTEL_FLUSH_INTERVAL_MS",
     value: "0",
     description: "Reserved policy value.",
   },
   {
-    name: "OPENCODE_TELEMETRY_QUEUE_DIR",
+    name: "OPENCODE_CC_OTEL_QUEUE_DIR",
     value: "optional",
     description: "Durable queue dir for failed first-party batches.",
   },
@@ -639,7 +664,7 @@ export {
   secondPartyAttrs,
   secondPartyEnvVars,
   secondPartyExample,
-  secondPartyModes,
+  secondPartyTransports,
   supportSnapshot,
   verifyCommands,
 };
