@@ -90,9 +90,7 @@ export class TelemetryService {
             attributes: input.attributes,
           });
 
-    this.#buffer.push(
-      nextRecord,
-    );
+    this.#buffer.push(nextRecord);
 
     if (this.#buffer.length >= this.#bufferPolicy.maxBatchSize) {
       await this.flush();

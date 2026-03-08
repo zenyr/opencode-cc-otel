@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 
-import { TELEMETRY_EVENT_NAMES, createTelemetryRecord } from "@zenyr/telemetry-domain";
+import {
+  TELEMETRY_EVENT_NAMES,
+  createTelemetryRecord,
+} from "@zenyr/telemetry-domain";
 import {
   Anthropic1PBatchSink,
   DurableTelemetrySink,
@@ -177,9 +180,12 @@ test("FanoutTelemetrySink forwards same batch to each sink", async () => {
 });
 
 test("createAnthropic1PBatchEnvelope builds Claude batch shape", () => {
-  const envelope = createAnthropic1PBatchEnvelope([buildFirstPartyRecord()], () => {
-    return "evt-1";
-  });
+  const envelope = createAnthropic1PBatchEnvelope(
+    [buildFirstPartyRecord()],
+    () => {
+      return "evt-1";
+    },
+  );
   const item = envelope.events[0];
 
   expect(item?.event_type).toBe("ClaudeCodeInternalEvent");
@@ -267,7 +273,10 @@ test("SecondPartyOtelSink writes one payload per event or metric", async () => {
     },
   });
 
-  await sink.publish([buildSecondPartyLogRecord(), buildSecondPartyMetricRecord()]);
+  await sink.publish([
+    buildSecondPartyLogRecord(),
+    buildSecondPartyMetricRecord(),
+  ]);
 
   expect(JSON.parse(writes[0] ?? "null")).toEqual({
     body: "claude_code.tool_result",

@@ -147,7 +147,9 @@ export const createAnthropic1PBatchEnvelope = (
     events: events.map((event) => {
       return {
         event_type: "ClaudeCodeInternalEvent",
-        event_data: JSON.stringify(buildAnthropic1PEventData(event, nowEventId())),
+        event_data: JSON.stringify(
+          buildAnthropic1PEventData(event, nowEventId()),
+        ),
       };
     }),
   };
@@ -369,7 +371,9 @@ export class Anthropic1PBatchSink implements TelemetrySinkPort {
 
     await publishJsonWithRetry(
       this.#options,
-      JSON.stringify(createAnthropic1PBatchEnvelope(filtered, this.#nowEventId)),
+      JSON.stringify(
+        createAnthropic1PBatchEnvelope(filtered, this.#nowEventId),
+      ),
       true,
     );
   }
@@ -484,8 +488,7 @@ export class SecondPartyOtelSink implements TelemetrySinkPort {
     this.#serviceName = options.serviceName ?? DEFAULT_OTEL_SERVICE_NAME;
     this.#serviceVersion =
       options.serviceVersion ?? DEFAULT_OTEL_SERVICE_VERSION;
-    this.#logsChannelId =
-      options.logsChannelId ?? DEFAULT_OTEL_LOGS_CHANNEL_ID;
+    this.#logsChannelId = options.logsChannelId ?? DEFAULT_OTEL_LOGS_CHANNEL_ID;
     this.#metricsChannelId =
       options.metricsChannelId ?? DEFAULT_OTEL_METRICS_CHANNEL_ID;
     this.#nowSequence = options.nowSequence ?? (() => Date.now());

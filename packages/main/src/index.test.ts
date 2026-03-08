@@ -185,7 +185,11 @@ const createScriptedClock = (...values: number[]) => {
 
 test("parseJsoncObject parses JSONC without stripping URLs", () => {
   expect(
-    parseJsoncObject<{ channels: { firstParty: { sink: string; http: { default: { endpoint: string } } } } }>(`{
+    parseJsoncObject<{
+      channels: {
+        firstParty: { sink: string; http: { default: { endpoint: string } } };
+      };
+    }>(`{
       // top comment
       "channels": {
         "firstParty": {
@@ -352,7 +356,10 @@ test("chat.message emits 1P and 2P prompt events", async () => {
     clock: createScriptedClock(1, 2),
   });
 
-  await hooks["chat.message"]?.(buildChatMessageInput(), buildChatMessageOutput());
+  await hooks["chat.message"]?.(
+    buildChatMessageInput(),
+    buildChatMessageOutput(),
+  );
 
   expect(sink.drain()).toEqual([
     {

@@ -10,9 +10,7 @@ test("TELEMETRY_EVENT_NAMES exposes Claude-compatible event constants", () => {
   expect(TELEMETRY_EVENT_NAMES.firstParty.inputPrompt).toBe(
     "tengu_input_prompt",
   );
-  expect(TELEMETRY_EVENT_NAMES.firstParty.apiSuccess).toBe(
-    "tengu_api_success",
-  );
+  expect(TELEMETRY_EVENT_NAMES.firstParty.apiSuccess).toBe("tengu_api_success");
   expect(TELEMETRY_EVENT_NAMES.secondParty.userPrompt).toBe(
     "claude_code.user_prompt",
   );

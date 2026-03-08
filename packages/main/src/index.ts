@@ -11,11 +11,11 @@ import {
   resolveLanguageFromPath,
 } from "@zenyr/telemetry-adapters";
 import {
+  type ClockPort,
   DEFAULT_TELEMETRY_BUFFER_POLICY,
   SystemClock,
-  TelemetryService,
-  type ClockPort,
   type TelemetryBufferPolicy,
+  TelemetryService,
   type TelemetrySinkPort,
 } from "@zenyr/telemetry-application";
 import { TELEMETRY_EVENT_NAMES } from "@zenyr/telemetry-domain";
@@ -297,7 +297,9 @@ export const loadTelemetryConfig = (
     return undefined;
   }
 
-  return parseJsoncObject<TelemetryConfigFile>(readFileSync(configPath, "utf8"));
+  return parseJsoncObject<TelemetryConfigFile>(
+    readFileSync(configPath, "utf8"),
+  );
 };
 
 const withDurability = (
@@ -448,7 +450,9 @@ const recordApiSuccess = async (
 
   const messageId = readString(getProp(message, "id"));
   const sessionId = readString(getProp(message, "sessionID"));
-  const completedAtMs = readNumber(getProp(getProp(message, "time"), "completed"));
+  const completedAtMs = readNumber(
+    getProp(getProp(message, "time"), "completed"),
+  );
 
   if (!messageId || completedAtMs === undefined) {
     return;
@@ -462,12 +466,16 @@ const recordApiSuccess = async (
 
   const createdAtMs = readNumber(getProp(getProp(message, "time"), "created"));
   const durationMs =
-    createdAtMs === undefined ? undefined : Math.max(0, completedAtMs - createdAtMs);
+    createdAtMs === undefined
+      ? undefined
+      : Math.max(0, completedAtMs - createdAtMs);
   const error = getProp(message, "error");
   const model = readString(getProp(message, "modelID"));
   const provider = readString(getProp(message, "providerID"));
   const inputTokens = readNumber(getProp(getProp(message, "tokens"), "input"));
-  const outputTokens = readNumber(getProp(getProp(message, "tokens"), "output"));
+  const outputTokens = readNumber(
+    getProp(getProp(message, "tokens"), "output"),
+  );
   const cacheReadTokens = readNumber(
     getProp(getProp(getProp(message, "tokens"), "cache"), "read"),
   );
@@ -633,7 +641,8 @@ export const createOpencodeHooks = (
 ): Hooks => {
   const env = options.env ?? DEFAULT_ENV;
   const clock = options.clock ?? new SystemClock();
-  const sink = (options.sink ?? createTelemetrySinkFromEnv(env)) as ReplayableSink;
+  const sink = (options.sink ??
+    createTelemetrySinkFromEnv(env)) as ReplayableSink;
   const service = new TelemetryService({
     sink,
     clock,
@@ -697,7 +706,11 @@ export const createOpencodeHooks = (
     event: async ({ event }) => {
       if (eventType(event) === "message.updated") {
         await ready;
-        await recordApiSuccess(service, seenCompletions, getProp(eventProperties(event), "info"));
+        await recordApiSuccess(
+          service,
+          seenCompletions,
+          getProp(eventProperties(event), "info"),
+        );
       }
 
       if (eventType(event) === "session.diff") {
@@ -825,10 +838,14 @@ export const createOpencodeHooks = (
       const state = toolCalls.get(toolInput.callID);
       toolCalls.delete(toolInput.callID);
 
-      const durationMs = state ? Math.max(0, clock.nowMs() - state.startedAtMs) : 0;
+      const durationMs = state
+        ? Math.max(0, clock.nowMs() - state.startedAtMs)
+        : 0;
       const filePath = metadataFilePath(toolOutput.metadata);
       const language = filePath ? resolveLanguageFromPath(filePath) : undefined;
-      const outputSizeBytes = Buffer.byteLength(String(toolOutput.output ?? ""));
+      const outputSizeBytes = Buffer.byteLength(
+        String(toolOutput.output ?? ""),
+      );
 
       await record({
         channel: "firstParty",
