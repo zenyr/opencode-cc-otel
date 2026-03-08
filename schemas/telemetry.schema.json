@@ -32,10 +32,7 @@
                 "$ref": "#/$defs/tokenValue"
               }
             },
-            "required": [
-              "match",
-              "endpoint"
-            ]
+            "required": ["match", "endpoint"]
           }
         }
       }
@@ -64,9 +61,7 @@
           "$ref": "#/$defs/tokenValue"
         }
       },
-      "required": [
-        "endpoint"
-      ]
+      "required": ["endpoint"]
     },
     "routeMatch": {
       "type": "object",

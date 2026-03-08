@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 
 import {
+  TELEMETRY_EVENT_NAMES,
   createTelemetryAttributes,
   createTelemetryRecord,
-  TELEMETRY_EVENT_NAMES,
 } from "./index";
 
 const buildRecordInput = () => {
@@ -26,7 +26,9 @@ test("TELEMETRY_EVENT_NAMES exposes shared event constants", () => {
   expect(TELEMETRY_EVENT_NAMES.permissionAsk).toBe("opencode.permission.ask");
   expect(TELEMETRY_EVENT_NAMES.apiRequest).toBe("opencode.api.request");
   expect(TELEMETRY_EVENT_NAMES.sessionDiff).toBe("opencode.session.diff");
-  expect(TELEMETRY_EVENT_NAMES.commandExecuted).toBe("opencode.command.executed");
+  expect(TELEMETRY_EVENT_NAMES.commandExecuted).toBe(
+    "opencode.command.executed",
+  );
   expect(TELEMETRY_EVENT_NAMES.fileEdited).toBe("opencode.file.edited");
   expect(TELEMETRY_EVENT_NAMES.gitOperation).toBe("opencode.git.operation");
   expect(TELEMETRY_EVENT_NAMES.sessionCreated).toBe("opencode.session.created");

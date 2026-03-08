@@ -11,19 +11,11 @@
     "skipLibCheck": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
-    "types": [
-      "bun"
-    ],
+    "types": ["bun"],
     "paths": {
-      "@zenyr/telemetry-domain": [
-        "packages/domain/src/index.ts"
-      ],
-      "@zenyr/telemetry-application": [
-        "packages/application/src/index.ts"
-      ],
-      "@zenyr/telemetry-adapters": [
-        "packages/adapters/src/index.ts"
-      ]
+      "@zenyr/telemetry-domain": ["packages/domain/src/index.ts"],
+      "@zenyr/telemetry-application": ["packages/application/src/index.ts"],
+      "@zenyr/telemetry-adapters": ["packages/adapters/src/index.ts"]
     }
   }
 }

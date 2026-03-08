@@ -1,9 +1,9 @@
 import {
-  createTelemetryRecord,
   type TelemetryAttributeValue,
   type TelemetryAttributesInput,
   type TelemetryEventName,
   type TelemetryRecord,
+  createTelemetryRecord,
 } from "@zenyr/telemetry-domain";
 
 export interface TelemetrySinkPort {
@@ -39,7 +39,8 @@ export type RecordTelemetryInput = {
 const normalizeBufferPolicy = (
   input?: Partial<TelemetryBufferPolicy>,
 ): TelemetryBufferPolicy => {
-  const maxBatchSize = input?.maxBatchSize ?? DEFAULT_TELEMETRY_BUFFER_POLICY.maxBatchSize;
+  const maxBatchSize =
+    input?.maxBatchSize ?? DEFAULT_TELEMETRY_BUFFER_POLICY.maxBatchSize;
   const flushIntervalMs =
     input?.flushIntervalMs ?? DEFAULT_TELEMETRY_BUFFER_POLICY.flushIntervalMs;
 

@@ -2,16 +2,22 @@
   "name": "@zenyr/opencode-cc-otel",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "packages/*"
-  ],
+  "workspaces": ["packages/*"],
   "scripts": {
     "build": "turbo run build",
-    "test": "turbo run test"
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "test": "turbo run test",
+    "prepare": "lefthook install",
+    "commitlint": "commitlint --edit"
   },
   "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@commitlint/cli": "^19.8.1",
+    "@commitlint/config-conventional": "^19.8.1",
     "@opencode-ai/plugin": "^1.2.20",
     "@types/bun": "latest",
+    "lefthook": "^1.11.13",
     "turbo": "^2.5.8",
     "typescript": "^5.9.3"
   },

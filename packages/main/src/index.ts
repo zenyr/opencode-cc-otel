@@ -12,9 +12,9 @@ import {
   resolveLanguageFromPath,
 } from "@zenyr/telemetry-adapters";
 import {
+  type ClockPort,
   DEFAULT_TELEMETRY_BUFFER_POLICY,
   SystemClock,
-  type ClockPort,
   type TelemetryBufferPolicy,
   TelemetryService,
   type TelemetrySinkPort,
@@ -70,7 +70,9 @@ const readString = (value: unknown): string | undefined => {
 };
 
 const readNumber = (value: unknown): number | undefined => {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 };
 
 const getProp = (value: unknown, key: string): unknown => {
@@ -154,7 +156,9 @@ const recordAssistantMessage = async (
 
   const messageId = readString(getProp(message, "id"));
   const sessionId = readString(getProp(message, "sessionID"));
-  const completedAtMs = readNumber(getProp(getProp(message, "time"), "completed"));
+  const completedAtMs = readNumber(
+    getProp(getProp(message, "time"), "completed"),
+  );
 
   if (!messageId || completedAtMs === undefined) {
     return;
@@ -168,7 +172,9 @@ const recordAssistantMessage = async (
 
   const createdAtMs = readNumber(getProp(getProp(message, "time"), "created"));
   const durationMs =
-    createdAtMs === undefined ? undefined : Math.max(0, completedAtMs - createdAtMs);
+    createdAtMs === undefined
+      ? undefined
+      : Math.max(0, completedAtMs - createdAtMs);
   const error = getProp(message, "error");
   const commonAttributes = {
     messageId,
@@ -201,7 +207,9 @@ const recordAssistantMessage = async (
       costUsd: readNumber(getProp(message, "cost")),
       inputTokens: readNumber(getProp(getProp(message, "tokens"), "input")),
       outputTokens: readNumber(getProp(getProp(message, "tokens"), "output")),
-      reasoningTokens: readNumber(getProp(getProp(message, "tokens"), "reasoning")),
+      reasoningTokens: readNumber(
+        getProp(getProp(message, "tokens"), "reasoning"),
+      ),
       cacheReadTokens: readNumber(
         getProp(getProp(getProp(message, "tokens"), "cache"), "read"),
       ),
@@ -221,7 +229,9 @@ const readInt = (value: string | undefined, fallback: number): number => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-const resolveBufferPolicy = (env: EnvProvider): Partial<TelemetryBufferPolicy> => {
+const resolveBufferPolicy = (
+  env: EnvProvider,
+): Partial<TelemetryBufferPolicy> => {
   return {
     maxBatchSize: readInt(
       env.OPENCODE_TELEMETRY_MAX_BATCH_SIZE,
@@ -311,7 +321,10 @@ export const parseJsoncObject = <T>(input: string): T => {
   return JSON.parse(stripJsonComments(input)) as T;
 };
 
-const resolveConfigValue = (env: EnvProvider, value: string | undefined): string | undefined => {
+const resolveConfigValue = (
+  env: EnvProvider,
+  value: string | undefined,
+): string | undefined => {
   if (!value) {
     return undefined;
   }
@@ -331,17 +344,25 @@ const defaultTelemetryConfigPath = (env: EnvProvider): string => {
 export const loadTelemetryConfig = (
   env: EnvProvider = DEFAULT_ENV,
 ): TelemetryConfigFile | undefined => {
-  const configPath = env.OPENCODE_TELEMETRY_CONFIG_PATH ?? defaultTelemetryConfigPath(env);
+  const configPath =
+    env.OPENCODE_TELEMETRY_CONFIG_PATH ?? defaultTelemetryConfigPath(env);
 
   if (!existsSync(configPath)) {
     return undefined;
   }
 
-  return parseJsoncObject<TelemetryConfigFile>(readFileSync(configPath, "utf8"));
+  return parseJsoncObject<TelemetryConfigFile>(
+    readFileSync(configPath, "utf8"),
+  );
 };
 
-const buildHttpSink = (env: EnvProvider, endpoint: string, token?: string): HttpTelemetrySink => {
-  const resolvedToken = resolveConfigValue(env, token) ?? env.OPENCODE_TELEMETRY_HTTP_TOKEN;
+const buildHttpSink = (
+  env: EnvProvider,
+  endpoint: string,
+  token?: string,
+): HttpTelemetrySink => {
+  const resolvedToken =
+    resolveConfigValue(env, token) ?? env.OPENCODE_TELEMETRY_HTTP_TOKEN;
 
   return new HttpTelemetrySink({
     endpoint,
@@ -364,7 +385,8 @@ const matchRoute = (
 
   if (
     config.providerPrefix !== undefined &&
-    (typeof provider !== "string" || !provider.startsWith(config.providerPrefix))
+    (typeof provider !== "string" ||
+      !provider.startsWith(config.providerPrefix))
   ) {
     return false;
   }
@@ -386,11 +408,14 @@ const matchRoute = (
 const buildHttpRoutingSink = (env: EnvProvider): TelemetrySinkPort => {
   const config = loadTelemetryConfig(env)?.http;
   const fallbackEndpoint =
-    resolveConfigValue(env, config?.default?.endpoint) ?? env.OPENCODE_TELEMETRY_HTTP_ENDPOINT;
+    resolveConfigValue(env, config?.default?.endpoint) ??
+    env.OPENCODE_TELEMETRY_HTTP_ENDPOINT;
   const fallbackToken = resolveConfigValue(env, config?.default?.token);
   const rules = (config?.routes ?? []).map((route) => {
     return {
-      match: (event: Parameters<RoutingTelemetrySink["publish"]>[0][number]) => {
+      match: (
+        event: Parameters<RoutingTelemetrySink["publish"]>[0][number],
+      ) => {
         return matchRoute(route.match, event);
       },
       sink: buildHttpSink(
@@ -453,7 +478,8 @@ const startReplay = (sink: ReplayableSink): Promise<void> => {
 export const createTelemetrySinkFromEnv = (
   env: EnvProvider = DEFAULT_ENV,
 ): TelemetrySinkPort => {
-  const sinkType = env.OPENCODE_TELEMETRY_SINK ??
+  const sinkType =
+    env.OPENCODE_TELEMETRY_SINK ??
     (env.OPENCODE_TELEMETRY_HTTP_ENDPOINT ? "http" : "console");
 
   if (sinkType === "console") {
@@ -465,10 +491,7 @@ export const createTelemetrySinkFromEnv = (
 
   if (sinkType === "http") {
     return withDurabilityFromEnv(
-      withFanoutFromEnv(
-        buildHttpRoutingSink(env),
-        env,
-      ),
+      withFanoutFromEnv(buildHttpRoutingSink(env), env),
       env,
     );
   }
@@ -496,7 +519,8 @@ export const createOpencodeHooks = (
 ): Hooks => {
   const env = options.env ?? DEFAULT_ENV;
   const clock = options.clock ?? new SystemClock();
-  const sink = (options.sink ?? createTelemetrySinkFromEnv(env)) as ReplayableSink;
+  const sink = (options.sink ??
+    createTelemetrySinkFromEnv(env)) as ReplayableSink;
   const service = new TelemetryService({
     sink,
     clock,
@@ -574,8 +598,8 @@ export const createOpencodeHooks = (
           command === "git" && argumentsText?.includes("commit")
             ? "commit"
             : command === "gh" && argumentsText?.includes("pr create")
-            ? "pull_request"
-            : undefined;
+              ? "pull_request"
+              : undefined;
 
         await record({
           name: TELEMETRY_EVENT_NAMES.commandExecuted,
@@ -651,9 +675,13 @@ export const createOpencodeHooks = (
           sessionId: readString(getProp(properties, "sessionID")),
           attributes: {
             errorName: readString(getProp(error, "name")) ?? "UnknownError",
-            errorMessage: readString(getProp(getProp(error, "data"), "message")),
+            errorMessage: readString(
+              getProp(getProp(error, "data"), "message"),
+            ),
             provider: readString(getProp(getProp(error, "data"), "providerID")),
-            statusCode: readNumber(getProp(getProp(error, "data"), "statusCode")),
+            statusCode: readNumber(
+              getProp(getProp(error, "data"), "statusCode"),
+            ),
           },
         });
       }
@@ -688,9 +716,11 @@ export const createOpencodeHooks = (
 
     "command.execute.before": async (commandInput) => {
       const isGitCommit =
-        commandInput.command === "git" && commandInput.arguments.includes("commit");
+        commandInput.command === "git" &&
+        commandInput.arguments.includes("commit");
       const isGitPrCreate =
-        commandInput.command === "gh" && commandInput.arguments.includes("pr create");
+        commandInput.command === "gh" &&
+        commandInput.arguments.includes("pr create");
 
       await record({
         name: TELEMETRY_EVENT_NAMES.commandExecuteBefore,
@@ -724,7 +754,9 @@ export const createOpencodeHooks = (
       const state = toolCalls.get(toolInput.callID);
       toolCalls.delete(toolInput.callID);
 
-      const durationMs = state ? Math.max(0, clock.nowMs() - state.startedAtMs) : 0;
+      const durationMs = state
+        ? Math.max(0, clock.nowMs() - state.startedAtMs)
+        : 0;
       const filePath = metadataFilePath(toolOutput.metadata);
       const language = filePath ? resolveLanguageFromPath(filePath) : undefined;
 

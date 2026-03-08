@@ -2,17 +2,17 @@ import { expect, test } from "bun:test";
 
 import {
   TELEMETRY_EVENT_NAMES,
-  createTelemetryRecord,
   type TelemetryRecord,
+  createTelemetryRecord,
 } from "@zenyr/telemetry-domain";
 import {
-  createNormalizedTelemetryEnvelope,
   DurableTelemetrySink,
   FanoutTelemetrySink,
   HttpTelemetrySink,
   InMemoryTelemetrySink,
   OTelJsonSink,
   RoutingTelemetrySink,
+  createNormalizedTelemetryEnvelope,
   resolveLanguageFromPath,
 } from "./index";
 

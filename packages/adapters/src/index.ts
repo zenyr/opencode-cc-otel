@@ -93,7 +93,9 @@ const backoffForAttempt = (
   return Math.min(backoffMs * attempt * attempt, maxBackoffMs);
 };
 
-const stringifyAttributeValue = (value: TelemetryRecord["attributes"][string]): string => {
+const stringifyAttributeValue = (
+  value: TelemetryRecord["attributes"][string],
+): string => {
   return String(value);
 };
 
@@ -206,7 +208,10 @@ export class HttpTelemetrySink implements TelemetrySinkPort {
         const body = await response.text();
         const error = createHttpError(response.status, body);
 
-        if (!isRetryableStatus(response.status) || attempt === this.#maxAttempts) {
+        if (
+          !isRetryableStatus(response.status) ||
+          attempt === this.#maxAttempts
+        ) {
           throw new Error(
             `HttpTelemetrySink failed after ${attempt} attempts: ${error.message}`,
           );
@@ -218,7 +223,9 @@ export class HttpTelemetrySink implements TelemetrySinkPort {
           error instanceof Error ? error : new Error(String(error));
 
         if (
-          normalizedError.message.startsWith("HttpTelemetrySink failed after") ||
+          normalizedError.message.startsWith(
+            "HttpTelemetrySink failed after",
+          ) ||
           attempt === this.#maxAttempts
         ) {
           throw new Error(
@@ -345,7 +352,8 @@ export class OTelJsonSink implements TelemetrySinkPort {
   constructor(options: OTelJsonSinkOptions = {}) {
     this.#write = options.write ?? ((payload) => console.log(payload));
     this.#serviceName = options.serviceName ?? DEFAULT_OTEL_SERVICE_NAME;
-    this.#serviceVersion = options.serviceVersion ?? DEFAULT_OTEL_SERVICE_VERSION;
+    this.#serviceVersion =
+      options.serviceVersion ?? DEFAULT_OTEL_SERVICE_VERSION;
     this.#channelId = options.channelId ?? DEFAULT_OTEL_CHANNEL_ID;
     this.#nowSequence = options.nowSequence ?? (() => Date.now());
   }
@@ -416,7 +424,9 @@ export class RoutingTelemetrySink implements TelemetrySinkPort {
   }
 }
 
-export const resolveLanguageFromPath = (filePath: string): string | undefined => {
+export const resolveLanguageFromPath = (
+  filePath: string,
+): string | undefined => {
   const dotAt = filePath.lastIndexOf(".");
   if (dotAt === -1) {
     return undefined;
