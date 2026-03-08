@@ -6,87 +6,104 @@ import {
   createTelemetryRecord,
 } from "./index";
 
-const buildRecordInput = () => {
-  return {
-    name: TELEMETRY_EVENT_NAMES.toolExecuteAfter,
+test("TELEMETRY_EVENT_NAMES exposes Claude-compatible event constants", () => {
+  expect(TELEMETRY_EVENT_NAMES.firstParty.inputPrompt).toBe(
+    "tengu_input_prompt",
+  );
+  expect(TELEMETRY_EVENT_NAMES.firstParty.apiSuccess).toBe(
+    "tengu_api_success",
+  );
+  expect(TELEMETRY_EVENT_NAMES.secondParty.userPrompt).toBe(
+    "claude_code.user_prompt",
+  );
+  expect(TELEMETRY_EVENT_NAMES.secondParty.toolResult).toBe(
+    "claude_code.tool_result",
+  );
+  expect(TELEMETRY_EVENT_NAMES.secondPartyMetrics.tokenUsage).toBe(
+    "claude_code.token.usage",
+  );
+});
+
+test("createTelemetryRecord builds second-party event payload", () => {
+  const event = createTelemetryRecord({
+    channel: "secondParty",
+    name: TELEMETRY_EVENT_NAMES.secondParty.toolResult,
     nowMs: 1,
     sessionId: "session-1",
     attributes: {
-      tool: "edit",
-      durationMs: 10,
+      tool_name: "edit",
+      duration_ms: 10,
       dropMe: undefined,
     },
-  };
-};
+  });
 
-test("TELEMETRY_EVENT_NAMES exposes shared event constants", () => {
-  expect(TELEMETRY_EVENT_NAMES.toolExecuteAfter).toBe(
-    "opencode.tool.execute.after",
-  );
-  expect(TELEMETRY_EVENT_NAMES.permissionAsk).toBe("opencode.permission.ask");
-  expect(TELEMETRY_EVENT_NAMES.apiRequest).toBe("opencode.api.request");
-  expect(TELEMETRY_EVENT_NAMES.sessionDiff).toBe("opencode.session.diff");
-  expect(TELEMETRY_EVENT_NAMES.commandExecuted).toBe(
-    "opencode.command.executed",
-  );
-  expect(TELEMETRY_EVENT_NAMES.fileEdited).toBe("opencode.file.edited");
-  expect(TELEMETRY_EVENT_NAMES.gitOperation).toBe("opencode.git.operation");
-  expect(TELEMETRY_EVENT_NAMES.sessionCreated).toBe("opencode.session.created");
-  expect(TELEMETRY_EVENT_NAMES.sessionError).toBe("opencode.session.error");
-  expect(TELEMETRY_EVENT_NAMES.sessionIdle).toBe("opencode.session.idle");
-  expect(TELEMETRY_EVENT_NAMES.sessionStatus).toBe("opencode.session.status");
+  expect(event).toEqual({
+    kind: "event",
+    channel: "secondParty",
+    name: "claude_code.tool_result",
+    timestamp: "1970-01-01T00:00:00.001Z",
+    sessionId: "session-1",
+    attributes: {
+      tool_name: "edit",
+      duration_ms: 10,
+    },
+  });
 });
 
-test("createTelemetryRecord builds normalized payload", () => {
-  const event = createTelemetryRecord(buildRecordInput());
+test("createTelemetryRecord builds second-party metric payload", () => {
+  const metric = createTelemetryRecord({
+    kind: "metric",
+    channel: "secondParty",
+    name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.tokenUsage,
+    nowMs: 2,
+    unit: "tokens",
+    value: 123,
+    attributes: {
+      type: "input",
+      model: "claude-sonnet-4-6",
+    },
+  });
 
-  expect(event.name).toBe(TELEMETRY_EVENT_NAMES.toolExecuteAfter);
-  expect(event.timestamp).toBe("1970-01-01T00:00:00.001Z");
-  expect(event.attributes.dropMe).toBeUndefined();
+  expect(metric).toEqual({
+    kind: "metric",
+    channel: "secondParty",
+    name: "claude_code.token.usage",
+    timestamp: "1970-01-01T00:00:00.002Z",
+    attributes: {
+      type: "input",
+      model: "claude-sonnet-4-6",
+    },
+    unit: "tokens",
+    value: 123,
+    description: undefined,
+  });
 });
 
 test("createTelemetryRecord rejects invalid input early", () => {
   expect(() => {
     createTelemetryRecord({
-      name: "" as (typeof TELEMETRY_EVENT_NAMES)[keyof typeof TELEMETRY_EVENT_NAMES],
+      channel: "secondParty",
+      name: "",
       nowMs: Number.NaN,
     });
   }).toThrow("Telemetry event name req");
 });
 
-test("createTelemetryAttributes keeps known and unknown attrs normalized", () => {
+test("createTelemetryAttributes keeps primitive attrs only", () => {
   expect(
     createTelemetryAttributes({
-      tool: "edit",
-      durationMs: 25,
-      language: "typescript",
-      timestampSource: "hook",
-      customFlag: true,
+      tool_name: "edit",
+      duration_ms: 25,
+      success: true,
+      error: null,
       dropMe: undefined,
     }),
   ).toEqual({
-    tool: "edit",
-    durationMs: 25,
-    language: "typescript",
-    timestampSource: "hook",
-    customFlag: true,
+    tool_name: "edit",
+    duration_ms: 25,
+    success: true,
+    error: null,
   });
-});
-
-test("createTelemetryAttributes rejects invalid timestamp source", () => {
-  expect(() => {
-    createTelemetryAttributes({
-      timestampSource: "wall-clock" as "clock",
-    });
-  }).toThrow("Telemetry timestampSource invalid");
-});
-
-test("createTelemetryAttributes rejects invalid durationMs", () => {
-  expect(() => {
-    createTelemetryAttributes({
-      durationMs: -1,
-    });
-  }).toThrow("Telemetry durationMs invalid");
 });
 
 test("createTelemetryAttributes rejects non-primitive attr values", () => {

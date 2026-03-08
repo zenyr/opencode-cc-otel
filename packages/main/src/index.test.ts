@@ -41,7 +41,7 @@ const buildPluginInput = (): PluginInput => {
 const buildPermissionInput = (): PermissionInput => {
   return {
     id: "permission-1",
-    type: "tool.execute",
+    type: "Edit",
     sessionID: "session-1",
     messageID: "message-1",
     title: "Tool execution",
@@ -108,46 +108,40 @@ const buildAssistantMessageUpdatedEvent = (): EventInput => {
             created: 5,
             completed: 15,
           },
-          parentID: "message-1",
           modelID: "claude-sonnet-4-6",
           providerID: "anthropic",
-          mode: "build",
-          path: {
-            cwd: "/tmp/project",
-            root: "/tmp/project",
-          },
           cost: 0.25,
           tokens: {
-            input: 100,
-            output: 40,
-            reasoning: 10,
+            input: 10,
+            output: 20,
+            reasoning: 0,
             cache: {
               read: 3,
-              write: 2,
+              write: 4,
             },
           },
         },
       },
     },
-  };
+  } as EventInput;
 };
 
-const buildAssistantMessageErrorEvent = (): EventInput => {
+const buildAssistantErrorUpdatedEvent = (): EventInput => {
   return {
     event: {
       type: "message.updated",
       properties: {
         info: {
-          id: "assistant-err-1",
+          id: "assistant-2",
           sessionID: "session-1",
           role: "assistant",
           time: {
-            created: 10,
-            completed: 18,
+            created: 5,
+            completed: 15,
           },
-          parentID: "message-1",
           modelID: "claude-sonnet-4-6",
           providerID: "anthropic",
+          parentID: "message-1",
           mode: "build",
           path: {
             cwd: "/tmp/project",
@@ -164,378 +158,174 @@ const buildAssistantMessageErrorEvent = (): EventInput => {
             },
           },
           error: {
-            name: "APIError",
+            name: "ApiError",
             data: {
-              message: "quota exceeded",
-              statusCode: 429,
-              isRetryable: false,
+              message: "bad gateway",
+              statusCode: 502,
             },
           },
         },
       },
     },
-  };
-};
-
-const buildSessionDiffEvent = (): EventInput => {
-  return {
-    event: {
-      type: "session.diff",
-      properties: {
-        sessionID: "session-1",
-        diff: [
-          {
-            file: "src/main.ts",
-            before: "",
-            after: "",
-            additions: 3,
-            deletions: 1,
-          },
-          {
-            file: "src/app.ts",
-            before: "",
-            after: "",
-            additions: 4,
-            deletions: 2,
-          },
-        ],
-      },
-    },
-  };
-};
-
-const buildCommandExecutedEvent = (): EventInput => {
-  return {
-    event: {
-      type: "command.executed",
-      properties: {
-        name: "ls",
-        sessionID: "session-1",
-        arguments: "-la",
-        messageID: "message-2",
-      },
-    },
-  };
-};
-
-const buildGitCommitExecutedEvent = (): EventInput => {
-  return {
-    event: {
-      type: "command.executed",
-      properties: {
-        name: "git",
-        sessionID: "session-1",
-        arguments: "commit -m test",
-        messageID: "message-2",
-      },
-    },
-  };
-};
-
-const buildGitPrExecutedEvent = (): EventInput => {
-  return {
-    event: {
-      type: "command.executed",
-      properties: {
-        name: "gh",
-        sessionID: "session-1",
-        arguments: "pr create --title test",
-        messageID: "message-3",
-      },
-    },
-  };
-};
-
-const buildFileEditedEvent = (): EventInput => {
-  return {
-    event: {
-      type: "file.edited",
-      properties: {
-        file: "src/main.ts",
-      },
-    },
-  };
-};
-
-const buildSessionCreatedEvent = (): EventInput => {
-  return {
-    event: {
-      type: "session.created",
-      properties: {
-        info: {
-          id: "session-1",
-          projectID: "project-1",
-          directory: "/tmp/project",
-          title: "Telemetry session",
-          version: "1",
-          time: {
-            created: 1,
-            updated: 1,
-          },
-          summary: {
-            additions: 4,
-            deletions: 1,
-            files: 2,
-          },
-        },
-      },
-    },
-  };
-};
-
-const buildSessionIdleEvent = (): EventInput => {
-  return {
-    event: {
-      type: "session.idle",
-      properties: {
-        sessionID: "session-1",
-      },
-    },
-  };
-};
-
-const buildSessionErrorEvent = (): EventInput => {
-  return {
-    event: {
-      type: "session.error",
-      properties: {
-        sessionID: "session-1",
-        error: {
-          name: "APIError",
-          data: {
-            message: "rate limited",
-            statusCode: 429,
-            isRetryable: true,
-          },
-        },
-      },
-    },
-  };
-};
-
-const buildSessionStatusRetryEvent = (): EventInput => {
-  return {
-    event: {
-      type: "session.status",
-      properties: {
-        sessionID: "session-1",
-        status: {
-          type: "retry",
-          attempt: 2,
-          message: "provider timeout",
-          next: 1500,
-        },
-      },
-    },
-  };
+  } as unknown as EventInput;
 };
 
 const createScriptedClock = (...values: number[]) => {
   let index = 0;
-
   return {
     nowMs: () => {
-      const value = values[Math.min(index, values.length - 1)] ?? 0;
+      const value =
+        values[index] ??
+        (values.length === 0 ? 0 : (values[values.length - 1] ?? 0));
       index += 1;
       return value;
     },
   };
 };
 
-test("createOpencodeHooks returns opencode hook handlers", () => {
-  const hooks = createOpencodeHooks(buildPluginInput());
-
-  expect(typeof hooks["chat.message"]).toBe("function");
-  expect(typeof hooks["tool.execute.before"]).toBe("function");
-  expect(typeof hooks["tool.execute.after"]).toBe("function");
-  expect(typeof hooks["permission.ask"]).toBe("function");
-});
-
-test("chat message hook records prompt telemetry", async () => {
-  const sink = new InMemoryTelemetrySink();
-  const hooks = createOpencodeHooks(buildPluginInput(), {
-    sink,
-    clock: {
-      nowMs: () => 1,
-    },
-  });
-
-  await hooks["chat.message"]?.(
-    buildChatMessageInput(),
-    buildChatMessageOutput(),
-  );
-
-  expect(sink.drain()).toEqual([
-    {
-      name: TELEMETRY_EVENT_NAMES.chatMessage,
-      timestamp: "1970-01-01T00:00:00.001Z",
-      sessionId: "session-1",
-      attributes: {
-        agent: "build",
-        messageId: "message-1",
-        model: "claude-sonnet-4-6",
-        promptLength: 11,
-        provider: "anthropic",
-        variant: "chat",
-      },
-    },
-  ]);
-});
-
-test("permission hook records shared telemetry event contract", async () => {
-  const sink = new InMemoryTelemetrySink();
-  const hooks = createOpencodeHooks(buildPluginInput(), {
-    sink,
-    clock: {
-      nowMs: () => 1,
-    },
-  });
-
-  await hooks["permission.ask"]?.(buildPermissionInput(), {
-    status: "allow",
-  });
-
-  expect(sink.drain()).toEqual([
-    {
-      name: TELEMETRY_EVENT_NAMES.permissionAsk,
-      timestamp: "1970-01-01T00:00:00.001Z",
-      sessionId: "session-1",
-      attributes: {
-        status: "allow",
-        permission: "tool.execute",
-      },
-    },
-  ]);
-});
-
-test("createTelemetrySinkFromEnv selects http sink from env", () => {
-  const sink = createTelemetrySinkFromEnv({
-    OPENCODE_TELEMETRY_SINK: "http",
-    OPENCODE_TELEMETRY_HTTP_ENDPOINT: "https://telemetry.example.test/events",
-  });
-
-  expect(sink.constructor.name).toBe("HttpTelemetrySink");
-});
-
 test("parseJsoncObject parses JSONC without stripping URLs", () => {
   expect(
-    parseJsoncObject<{ http: { default: { endpoint: string } } }>(`{
+    parseJsoncObject<{ channels: { firstParty: { sink: string; http: { default: { endpoint: string } } } } }>(`{
       // top comment
-      "http": {
-        "default": {
-          "endpoint": "https://telemetry.example.test/default" /* inline */
+      "channels": {
+        "firstParty": {
+          "sink": "http",
+          "http": {
+            "default": {
+              "endpoint": "https://telemetry.example.test/default" /* inline */
+            }
+          }
         }
       }
     }`),
   ).toEqual({
-    http: {
-      default: {
-        endpoint: "https://telemetry.example.test/default",
+    channels: {
+      firstParty: {
+        sink: "http",
+        http: {
+          default: {
+            endpoint: "https://telemetry.example.test/default",
+          },
+        },
       },
     },
   });
 });
 
-test("loadTelemetryConfig reads XDG JSONC config", async () => {
-  const configRoot = `/tmp/opencode-telemetry-config-${Date.now()}`;
-  const configPath = `${configRoot}/opencode/telemetry.jsonc`;
+test("loadTelemetryConfig reads channel-aware JSONC config", async () => {
+  const configPath = `/tmp/opencode-telemetry-channels-${Date.now()}.jsonc`;
 
   await Bun.write(
     configPath,
     `{
-      "http": {
-        "default": {
-          "endpoint": "https://telemetry.example.test/default",
-          "token": "env:OPENCODE_TELEMETRY_HTTP_TOKEN"
-        },
-        "routes": [
-          {
-            "match": {
-              "providerPrefix": "openrouter/"
-            },
-            "endpoint": "https://telemetry.example.test/openrouter"
+      "channels": {
+        "firstParty": {
+          "enabled": true,
+          "sink": "http",
+          "http": {
+            "default": {
+              "endpoint": "https://telemetry.example.test/anthropic"
+            }
           }
-        ]
+        },
+        "secondParty": {
+          "enabled": true,
+          "sink": "otel-json",
+          "otel": {
+            "logsChannelId": "otel_3p_logs",
+            "metricsChannelId": "otel_3p_metrics"
+          }
+        },
+        "thirdParty": {
+          "enabled": false
+        }
       }
     }`,
   );
 
   expect(
     loadTelemetryConfig({
-      XDG_CONFIG_HOME: configRoot,
-      OPENCODE_TELEMETRY_HTTP_TOKEN: "secret",
+      OPENCODE_TELEMETRY_CONFIG_PATH: configPath,
     }),
   ).toEqual({
-    http: {
-      default: {
-        endpoint: "https://telemetry.example.test/default",
-        token: "env:OPENCODE_TELEMETRY_HTTP_TOKEN",
-      },
-      routes: [
-        {
-          match: {
-            providerPrefix: "openrouter/",
+    channels: {
+      firstParty: {
+        enabled: true,
+        sink: "http",
+        http: {
+          default: {
+            endpoint: "https://telemetry.example.test/anthropic",
           },
-          endpoint: "https://telemetry.example.test/openrouter",
         },
-      ],
+      },
+      secondParty: {
+        enabled: true,
+        sink: "otel-json",
+        otel: {
+          logsChannelId: "otel_3p_logs",
+          metricsChannelId: "otel_3p_metrics",
+        },
+      },
+      thirdParty: {
+        enabled: false,
+      },
     },
   });
 });
 
-test("createTelemetrySinkFromEnv selects routing sink from XDG config", async () => {
-  const configPath = `/tmp/opencode-telemetry-routing-${Date.now()}.jsonc`;
+test("createTelemetrySinkFromEnv builds fanout sink from 1P and 2P", async () => {
+  const configPath = `/tmp/opencode-telemetry-fanout-${Date.now()}.jsonc`;
 
   await Bun.write(
     configPath,
     `{
-      "http": {
-        "default": {
-          "endpoint": "https://telemetry.example.test/default"
-        },
-        "routes": [
-          {
-            "match": {
-              "provider": "anthropic"
-            },
-            "endpoint": "https://telemetry.example.test/anthropic"
+      "channels": {
+        "firstParty": {
+          "enabled": true,
+          "sink": "http",
+          "http": {
+            "default": {
+              "endpoint": "https://telemetry.example.test/anthropic"
+            }
           }
-        ]
+        },
+        "secondParty": {
+          "enabled": true,
+          "sink": "otel-json"
+        },
+        "thirdParty": {
+          "enabled": false
+        }
       }
     }`,
   );
 
   const sink = createTelemetrySinkFromEnv({
-    OPENCODE_TELEMETRY_SINK: "http",
     OPENCODE_TELEMETRY_CONFIG_PATH: configPath,
   });
 
-  expect(sink.constructor.name).toBe("RoutingTelemetrySink");
-});
-
-test("createTelemetrySinkFromEnv selects otel json sink from env", () => {
-  const sink = createTelemetrySinkFromEnv({
-    OPENCODE_TELEMETRY_SINK: "otel-json",
-  });
-
-  expect(sink.constructor.name).toBe("OTelJsonSink");
-});
-
-test("createTelemetrySinkFromEnv wraps sink with durability when queue dir set", () => {
-  const sink = createTelemetrySinkFromEnv({
-    OPENCODE_TELEMETRY_QUEUE_DIR: "/tmp/opencode-cc-telemetry-queue",
-  });
-
-  expect(sink.constructor.name).toBe("DurableTelemetrySink");
-});
-
-test("createTelemetrySinkFromEnv wraps sink with fanout when mirror enabled", () => {
-  const sink = createTelemetrySinkFromEnv({
-    OPENCODE_TELEMETRY_HTTP_ENDPOINT: "https://telemetry.example.test/events",
-    OPENCODE_TELEMETRY_MIRROR_CONSOLE: "1",
-  });
-
   expect(sink.constructor.name).toBe("FanoutTelemetrySink");
+});
+
+test("createTelemetrySinkFromEnv rejects enabled thirdParty", async () => {
+  const configPath = `/tmp/opencode-telemetry-third-party-${Date.now()}.jsonc`;
+
+  await Bun.write(
+    configPath,
+    `{
+      "channels": {
+        "thirdParty": {
+          "enabled": true
+        }
+      }
+    }`,
+  );
+
+  expect(() => {
+    createTelemetrySinkFromEnv({
+      OPENCODE_TELEMETRY_CONFIG_PATH: configPath,
+    });
+  }).toThrow("thirdParty telemetry unsupported yet");
 });
 
 test("hook startup awaits queued replay before recording", async () => {
@@ -552,17 +342,94 @@ test("hook startup awaits queued replay before recording", async () => {
   });
 
   expect(sink.replayed).toBeTrue();
-  expect(sink.drain()).toHaveLength(1);
+  expect(sink.drain()).toHaveLength(2);
 });
 
-test("tool hooks produce end-to-end telemetry payloads", async () => {
+test("chat.message emits 1P and 2P prompt events", async () => {
   const sink = new InMemoryTelemetrySink();
   const hooks = createOpencodeHooks(buildPluginInput(), {
     sink,
-    clock: createScriptedClock(1, 1, 8, 8),
-    env: {
-      OPENCODE_TELEMETRY_MAX_BATCH_SIZE: "1",
+    clock: createScriptedClock(1, 2),
+  });
+
+  await hooks["chat.message"]?.(buildChatMessageInput(), buildChatMessageOutput());
+
+  expect(sink.drain()).toEqual([
+    {
+      kind: "event",
+      channel: "firstParty",
+      name: TELEMETRY_EVENT_NAMES.firstParty.inputPrompt,
+      timestamp: "1970-01-01T00:00:00.001Z",
+      sessionId: "session-1",
+      attributes: {
+        promptLength: 11,
+        model: "claude-sonnet-4-6",
+        provider: "anthropic",
+      },
     },
+    {
+      kind: "event",
+      channel: "secondParty",
+      name: TELEMETRY_EVENT_NAMES.secondParty.userPrompt,
+      timestamp: "1970-01-01T00:00:00.002Z",
+      sessionId: "session-1",
+      attributes: {
+        "prompt.id": "message-1",
+        prompt_length: 11,
+        model: "claude-sonnet-4-6",
+        provider: "anthropic",
+      },
+    },
+  ]);
+});
+
+test("permission.ask emits 2P tool decision event and metric", async () => {
+  const sink = new InMemoryTelemetrySink();
+  const hooks = createOpencodeHooks(buildPluginInput(), {
+    sink,
+    clock: createScriptedClock(1, 2),
+  });
+
+  await hooks["permission.ask"]?.(buildPermissionInput(), {
+    status: "allow",
+  });
+
+  expect(sink.drain()).toEqual([
+    {
+      kind: "event",
+      channel: "secondParty",
+      name: TELEMETRY_EVENT_NAMES.secondParty.toolDecision,
+      timestamp: "1970-01-01T00:00:00.001Z",
+      sessionId: "session-1",
+      attributes: {
+        tool_name: "Edit",
+        decision: "accept",
+        source: "unknown",
+      },
+    },
+    {
+      kind: "metric",
+      channel: "secondParty",
+      name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.codeEditToolDecision,
+      timestamp: "1970-01-01T00:00:00.002Z",
+      sessionId: "session-1",
+      attributes: {
+        decision: "accept",
+        source: "unknown",
+        tool_name: "Edit",
+      },
+      unit: "{count}",
+      value: 1,
+      description: undefined,
+    },
+  ]);
+});
+
+test("tool hooks emit 1P and 2P tool telemetry", async () => {
+  const sink = new InMemoryTelemetrySink();
+  const hooks = createOpencodeHooks(buildPluginInput(), {
+    sink,
+    clock: createScriptedClock(1, 8, 9),
   });
 
   await hooks["tool.execute.before"]?.(
@@ -594,466 +461,312 @@ test("tool hooks produce end-to-end telemetry payloads", async () => {
 
   expect(sink.drain()).toEqual([
     {
-      name: TELEMETRY_EVENT_NAMES.toolExecuteBefore,
+      kind: "event",
+      channel: "firstParty",
+      name: TELEMETRY_EVENT_NAMES.firstParty.toolUseSuccess,
+      timestamp: "1970-01-01T00:00:00.009Z",
+      sessionId: "session-1",
+      attributes: {
+        toolName: "edit",
+        durationMs: 7,
+        toolResultSizeBytes: 2,
+        fileExtension: "typescript",
+      },
+    },
+    {
+      kind: "event",
+      channel: "secondParty",
+      name: TELEMETRY_EVENT_NAMES.secondParty.toolResult,
+      timestamp: "1970-01-01T00:00:00.009Z",
+      sessionId: "session-1",
+      attributes: {
+        tool_name: "edit",
+        success: true,
+        duration_ms: 7,
+        tool_result_size_bytes: 2,
+        file_path: "src/main.ts",
+        language: "typescript",
+      },
+    },
+  ]);
+});
+
+test("message.updated success emits 1P, 2P, cost, and token metrics", async () => {
+  const sink = new InMemoryTelemetrySink();
+  const hooks = createOpencodeHooks(buildPluginInput(), {
+    sink,
+    clock: createScriptedClock(1, 2, 3, 4, 5, 6, 7),
+  });
+
+  await hooks.event?.(buildAssistantMessageUpdatedEvent());
+
+  expect(sink.drain()).toEqual([
+    {
+      kind: "event",
+      channel: "firstParty",
+      name: TELEMETRY_EVENT_NAMES.firstParty.apiSuccess,
       timestamp: "1970-01-01T00:00:00.001Z",
       sessionId: "session-1",
       attributes: {
-        tool: "edit",
-        callId: "call-1",
-        timestampSource: "hook",
-      },
-    },
-    {
-      name: TELEMETRY_EVENT_NAMES.toolExecuteAfter,
-      timestamp: "1970-01-01T00:00:00.008Z",
-      sessionId: "session-1",
-      attributes: {
-        tool: "edit",
-        callId: "call-1",
-        durationMs: 7,
-        filePath: "src/main.ts",
-        language: "typescript",
-        timestampSource: "hook",
-        title: "Edit file",
-      },
-    },
-  ]);
-});
-
-test("message.updated records API usage telemetry once per completion", async () => {
-  const sink = new InMemoryTelemetrySink();
-  const hooks = createOpencodeHooks(buildPluginInput(), {
-    sink,
-    clock: {
-      nowMs: () => 20,
-    },
-  });
-
-  const event = buildAssistantMessageUpdatedEvent();
-
-  await hooks.event?.(event);
-  await hooks.event?.(event);
-
-  expect(sink.drain()).toEqual([
-    {
-      name: TELEMETRY_EVENT_NAMES.eventReceived,
-      timestamp: "1970-01-01T00:00:00.020Z",
-      attributes: {
-        eventType: "message.updated",
-      },
-    },
-    {
-      name: TELEMETRY_EVENT_NAMES.apiRequest,
-      timestamp: "1970-01-01T00:00:00.020Z",
-      sessionId: "session-1",
-      attributes: {
-        messageId: "assistant-1",
         model: "claude-sonnet-4-6",
         provider: "anthropic",
         durationMs: 10,
-        completedAtMs: 15,
-        success: true,
-        costUsd: 0.25,
-        inputTokens: 100,
-        outputTokens: 40,
-        reasoningTokens: 10,
-        cacheReadTokens: 3,
-        cacheWriteTokens: 2,
+        inputTokens: 10,
+        outputTokens: 20,
+        cachedInputTokens: 3,
+        cacheCreationTokens: 4,
+        costUSD: 0.25,
       },
     },
     {
-      name: TELEMETRY_EVENT_NAMES.eventReceived,
-      timestamp: "1970-01-01T00:00:00.020Z",
-      attributes: {
-        eventType: "message.updated",
-      },
-    },
-  ]);
-});
-
-test("message.updated records API error telemetry", async () => {
-  const sink = new InMemoryTelemetrySink();
-  const hooks = createOpencodeHooks(buildPluginInput(), {
-    sink,
-    clock: {
-      nowMs: () => 21,
-    },
-  });
-
-  await hooks.event?.(buildAssistantMessageErrorEvent());
-
-  expect(sink.drain()).toEqual([
-    {
-      name: TELEMETRY_EVENT_NAMES.eventReceived,
-      timestamp: "1970-01-01T00:00:00.021Z",
-      attributes: {
-        eventType: "message.updated",
-      },
-    },
-    {
-      name: TELEMETRY_EVENT_NAMES.apiError,
-      timestamp: "1970-01-01T00:00:00.021Z",
+      kind: "event",
+      channel: "secondParty",
+      name: TELEMETRY_EVENT_NAMES.secondParty.apiRequest,
+      timestamp: "1970-01-01T00:00:00.002Z",
       sessionId: "session-1",
       attributes: {
-        messageId: "assistant-err-1",
         model: "claude-sonnet-4-6",
         provider: "anthropic",
-        durationMs: 8,
-        completedAtMs: 18,
-        success: false,
-        errorName: "APIError",
-        errorMessage: "quota exceeded",
-        statusCode: 429,
+        duration_ms: 10,
+        input_tokens: 10,
+        output_tokens: 20,
+        cache_read_tokens: 3,
+        cache_creation_tokens: 4,
+        cost_usd: 0.25,
       },
+    },
+    {
+      kind: "metric",
+      channel: "secondParty",
+      name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.costUsage,
+      timestamp: "1970-01-01T00:00:00.003Z",
+      sessionId: "session-1",
+      attributes: {
+        model: "claude-sonnet-4-6",
+      },
+      unit: "USD",
+      value: 0.25,
+      description: undefined,
+    },
+    {
+      kind: "metric",
+      channel: "secondParty",
+      name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.tokenUsage,
+      timestamp: "1970-01-01T00:00:00.004Z",
+      sessionId: "session-1",
+      attributes: {
+        model: "claude-sonnet-4-6",
+        type: "input",
+      },
+      unit: "tokens",
+      value: 10,
+      description: undefined,
+    },
+    {
+      kind: "metric",
+      channel: "secondParty",
+      name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.tokenUsage,
+      timestamp: "1970-01-01T00:00:00.005Z",
+      sessionId: "session-1",
+      attributes: {
+        model: "claude-sonnet-4-6",
+        type: "output",
+      },
+      unit: "tokens",
+      value: 20,
+      description: undefined,
+    },
+    {
+      kind: "metric",
+      channel: "secondParty",
+      name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.tokenUsage,
+      timestamp: "1970-01-01T00:00:00.006Z",
+      sessionId: "session-1",
+      attributes: {
+        model: "claude-sonnet-4-6",
+        type: "cacheRead",
+      },
+      unit: "tokens",
+      value: 3,
+      description: undefined,
+    },
+    {
+      kind: "metric",
+      channel: "secondParty",
+      name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.tokenUsage,
+      timestamp: "1970-01-01T00:00:00.007Z",
+      sessionId: "session-1",
+      attributes: {
+        model: "claude-sonnet-4-6",
+        type: "cacheCreation",
+      },
+      unit: "tokens",
+      value: 4,
+      description: undefined,
     },
   ]);
 });
 
-test("session.diff records aggregated diff telemetry", async () => {
+test("message.updated error emits 1P and 2P error events", async () => {
   const sink = new InMemoryTelemetrySink();
   const hooks = createOpencodeHooks(buildPluginInput(), {
     sink,
-    clock: {
-      nowMs: () => 25,
-    },
+    clock: createScriptedClock(1, 2),
   });
 
-  await hooks.event?.(buildSessionDiffEvent());
+  await hooks.event?.(buildAssistantErrorUpdatedEvent());
 
   expect(sink.drain()).toEqual([
     {
-      name: TELEMETRY_EVENT_NAMES.eventReceived,
-      timestamp: "1970-01-01T00:00:00.025Z",
+      kind: "event",
+      channel: "firstParty",
+      name: TELEMETRY_EVENT_NAMES.firstParty.apiError,
+      timestamp: "1970-01-01T00:00:00.001Z",
+      sessionId: "session-1",
       attributes: {
-        eventType: "session.diff",
+        model: "claude-sonnet-4-6",
+        provider: "anthropic",
+        durationMs: 10,
+        error: "bad gateway",
+        status: 502,
       },
     },
     {
-      name: TELEMETRY_EVENT_NAMES.sessionDiff,
-      timestamp: "1970-01-01T00:00:00.025Z",
+      kind: "event",
+      channel: "secondParty",
+      name: TELEMETRY_EVENT_NAMES.secondParty.apiError,
+      timestamp: "1970-01-01T00:00:00.002Z",
       sessionId: "session-1",
       attributes: {
-        additions: 7,
-        deletions: 3,
-        files: 2,
+        model: "claude-sonnet-4-6",
+        provider: "anthropic",
+        duration_ms: 10,
+        error: "bad gateway",
+        status_code: 502,
       },
     },
   ]);
 });
 
-test("command.executed records completed command telemetry", async () => {
+test("session.diff emits second-party lines-of-code metrics", async () => {
   const sink = new InMemoryTelemetrySink();
   const hooks = createOpencodeHooks(buildPluginInput(), {
     sink,
-    clock: {
-      nowMs: () => 30,
-    },
-  });
-
-  await hooks.event?.(buildCommandExecutedEvent());
-
-  expect(sink.drain()).toEqual([
-    {
-      name: TELEMETRY_EVENT_NAMES.eventReceived,
-      timestamp: "1970-01-01T00:00:00.030Z",
-      attributes: {
-        eventType: "command.executed",
-      },
-    },
-    {
-      name: TELEMETRY_EVENT_NAMES.commandExecuted,
-      timestamp: "1970-01-01T00:00:00.030Z",
-      sessionId: "session-1",
-      attributes: {
-        command: "ls",
-        arguments: "-la",
-        messageId: "message-2",
-      },
-    },
-  ]);
-});
-
-test("command.executed records successful git operation telemetry", async () => {
-  const sink = new InMemoryTelemetrySink();
-  const hooks = createOpencodeHooks(buildPluginInput(), {
-    sink,
-    clock: {
-      nowMs: () => 32,
-    },
-  });
-
-  await hooks.event?.(buildGitCommitExecutedEvent());
-
-  expect(sink.drain()).toEqual([
-    {
-      name: TELEMETRY_EVENT_NAMES.eventReceived,
-      timestamp: "1970-01-01T00:00:00.032Z",
-      attributes: {
-        eventType: "command.executed",
-      },
-    },
-    {
-      name: TELEMETRY_EVENT_NAMES.commandExecuted,
-      timestamp: "1970-01-01T00:00:00.032Z",
-      sessionId: "session-1",
-      attributes: {
-        command: "git",
-        arguments: "commit -m test",
-        messageId: "message-2",
-      },
-    },
-    {
-      name: TELEMETRY_EVENT_NAMES.gitOperation,
-      timestamp: "1970-01-01T00:00:00.032Z",
-      sessionId: "session-1",
-      attributes: {
-        command: "git",
-        arguments: "commit -m test",
-        messageId: "message-2",
-        operation: "commit",
-        success: true,
-      },
-    },
-  ]);
-});
-
-test("command.executed records successful git pr telemetry", async () => {
-  const sink = new InMemoryTelemetrySink();
-  const hooks = createOpencodeHooks(buildPluginInput(), {
-    sink,
-    clock: {
-      nowMs: () => 33,
-    },
-  });
-
-  await hooks.event?.(buildGitPrExecutedEvent());
-
-  expect(sink.drain()).toEqual([
-    {
-      name: TELEMETRY_EVENT_NAMES.eventReceived,
-      timestamp: "1970-01-01T00:00:00.033Z",
-      attributes: {
-        eventType: "command.executed",
-      },
-    },
-    {
-      name: TELEMETRY_EVENT_NAMES.commandExecuted,
-      timestamp: "1970-01-01T00:00:00.033Z",
-      sessionId: "session-1",
-      attributes: {
-        command: "gh",
-        arguments: "pr create --title test",
-        messageId: "message-3",
-      },
-    },
-    {
-      name: TELEMETRY_EVENT_NAMES.gitOperation,
-      timestamp: "1970-01-01T00:00:00.033Z",
-      sessionId: "session-1",
-      attributes: {
-        command: "gh",
-        arguments: "pr create --title test",
-        messageId: "message-3",
-        operation: "pull_request",
-        success: true,
-      },
-    },
-  ]);
-});
-
-test("session.status records busy state telemetry with sparse attrs", async () => {
-  const sink = new InMemoryTelemetrySink();
-  const hooks = createOpencodeHooks(buildPluginInput(), {
-    sink,
-    clock: {
-      nowMs: () => 56,
-    },
+    clock: createScriptedClock(1, 2),
   });
 
   await hooks.event?.({
     event: {
-      type: "session.status",
+      type: "session.diff",
       properties: {
         sessionID: "session-1",
-        status: {
-          type: "busy",
-        },
+        diff: [
+          {
+            file: "src/main.ts",
+            additions: 5,
+            deletions: 3,
+            before: "",
+            after: "",
+          },
+        ],
       },
     },
-  });
+  } as EventInput);
 
   expect(sink.drain()).toEqual([
     {
-      name: TELEMETRY_EVENT_NAMES.eventReceived,
-      timestamp: "1970-01-01T00:00:00.056Z",
-      attributes: {
-        eventType: "session.status",
-      },
-    },
-    {
-      name: TELEMETRY_EVENT_NAMES.sessionStatus,
-      timestamp: "1970-01-01T00:00:00.056Z",
+      kind: "metric",
+      channel: "secondParty",
+      name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.linesOfCodeCount,
+      timestamp: "1970-01-01T00:00:00.001Z",
       sessionId: "session-1",
       attributes: {
-        status: "busy",
+        type: "added",
       },
-    },
-  ]);
-});
-
-test("file.edited records file telemetry with language", async () => {
-  const sink = new InMemoryTelemetrySink();
-  const hooks = createOpencodeHooks(buildPluginInput(), {
-    sink,
-    clock: {
-      nowMs: () => 35,
-    },
-  });
-
-  await hooks.event?.(buildFileEditedEvent());
-
-  expect(sink.drain()).toEqual([
-    {
-      name: TELEMETRY_EVENT_NAMES.eventReceived,
-      timestamp: "1970-01-01T00:00:00.035Z",
-      attributes: {
-        eventType: "file.edited",
-      },
+      unit: "{count}",
+      value: 5,
+      description: undefined,
     },
     {
-      name: TELEMETRY_EVENT_NAMES.fileEdited,
-      timestamp: "1970-01-01T00:00:00.035Z",
-      attributes: {
-        filePath: "src/main.ts",
-        language: "typescript",
-      },
-    },
-  ]);
-});
-
-test("session.created records session lifecycle telemetry", async () => {
-  const sink = new InMemoryTelemetrySink();
-  const hooks = createOpencodeHooks(buildPluginInput(), {
-    sink,
-    clock: {
-      nowMs: () => 40,
-    },
-  });
-
-  await hooks.event?.(buildSessionCreatedEvent());
-
-  expect(sink.drain()).toEqual([
-    {
-      name: TELEMETRY_EVENT_NAMES.eventReceived,
-      timestamp: "1970-01-01T00:00:00.040Z",
-      attributes: {
-        eventType: "session.created",
-      },
-    },
-    {
-      name: TELEMETRY_EVENT_NAMES.sessionCreated,
-      timestamp: "1970-01-01T00:00:00.040Z",
+      kind: "metric",
+      channel: "secondParty",
+      name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.linesOfCodeCount,
+      timestamp: "1970-01-01T00:00:00.002Z",
       sessionId: "session-1",
       attributes: {
-        directory: "/tmp/project",
-        title: "Telemetry session",
-        additions: 4,
-        deletions: 1,
-        files: 2,
+        type: "removed",
       },
+      unit: "{count}",
+      value: 3,
+      description: undefined,
     },
   ]);
 });
 
-test("session.idle records idle transition telemetry", async () => {
+test("command lifecycle emits first-party command event and second-party metrics", async () => {
   const sink = new InMemoryTelemetrySink();
   const hooks = createOpencodeHooks(buildPluginInput(), {
     sink,
-    clock: {
-      nowMs: () => 45,
-    },
+    clock: createScriptedClock(1, 5, 6, 7),
   });
 
-  await hooks.event?.(buildSessionIdleEvent());
+  await hooks["command.execute.before"]?.(
+    {
+      sessionID: "session-1",
+      command: "gh",
+      arguments: "pr create",
+    },
+    {
+      parts: [],
+    },
+  );
+
+  await hooks.event?.({
+    event: {
+      type: "command.executed",
+      properties: {
+        sessionID: "session-1",
+        name: "gh",
+        arguments: "pr create",
+        messageID: "message-1",
+      },
+    },
+  } as EventInput);
 
   expect(sink.drain()).toEqual([
     {
-      name: TELEMETRY_EVENT_NAMES.eventReceived,
-      timestamp: "1970-01-01T00:00:00.045Z",
+      kind: "event",
+      channel: "firstParty",
+      name: TELEMETRY_EVENT_NAMES.firstParty.inputCommand,
+      timestamp: "1970-01-01T00:00:00.006Z",
+      sessionId: "session-1",
       attributes: {
-        eventType: "session.idle",
+        input: "gh pr create",
       },
     },
     {
-      name: TELEMETRY_EVENT_NAMES.sessionIdle,
-      timestamp: "1970-01-01T00:00:00.045Z",
+      kind: "metric",
+      channel: "secondParty",
+      name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.pullRequestCount,
+      timestamp: "1970-01-01T00:00:00.007Z",
       sessionId: "session-1",
       attributes: {},
-    },
-  ]);
-});
-
-test("session.error records error telemetry", async () => {
-  const sink = new InMemoryTelemetrySink();
-  const hooks = createOpencodeHooks(buildPluginInput(), {
-    sink,
-    clock: {
-      nowMs: () => 50,
-    },
-  });
-
-  await hooks.event?.(buildSessionErrorEvent());
-
-  expect(sink.drain()).toEqual([
-    {
-      name: TELEMETRY_EVENT_NAMES.eventReceived,
-      timestamp: "1970-01-01T00:00:00.050Z",
-      attributes: {
-        eventType: "session.error",
-      },
+      unit: "{count}",
+      value: 1,
+      description: undefined,
     },
     {
-      name: TELEMETRY_EVENT_NAMES.sessionError,
-      timestamp: "1970-01-01T00:00:00.050Z",
+      kind: "metric",
+      channel: "secondParty",
+      name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.activeTimeTotal,
+      timestamp: "1970-01-01T00:00:00.007Z",
       sessionId: "session-1",
       attributes: {
-        errorName: "APIError",
-        errorMessage: "rate limited",
-        statusCode: 429,
+        type: "cli",
       },
-    },
-  ]);
-});
-
-test("session.status records retry state telemetry", async () => {
-  const sink = new InMemoryTelemetrySink();
-  const hooks = createOpencodeHooks(buildPluginInput(), {
-    sink,
-    clock: {
-      nowMs: () => 55,
-    },
-  });
-
-  await hooks.event?.(buildSessionStatusRetryEvent());
-
-  expect(sink.drain()).toEqual([
-    {
-      name: TELEMETRY_EVENT_NAMES.eventReceived,
-      timestamp: "1970-01-01T00:00:00.055Z",
-      attributes: {
-        eventType: "session.status",
-      },
-    },
-    {
-      name: TELEMETRY_EVENT_NAMES.sessionStatus,
-      timestamp: "1970-01-01T00:00:00.055Z",
-      sessionId: "session-1",
-      attributes: {
-        status: "retry",
-        retryAttempt: 2,
-        nextRetryDelayMs: 1500,
-        errorMessage: "provider timeout",
-      },
+      unit: "s",
+      value: 0.004,
+      description: undefined,
     },
   ]);
 });

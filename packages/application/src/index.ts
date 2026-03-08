@@ -1,7 +1,6 @@
 import {
-  type TelemetryAttributeValue,
-  type TelemetryAttributesInput,
-  type TelemetryEventName,
+  type TelemetryEventRecordInput,
+  type TelemetryMetricRecordInput,
   type TelemetryRecord,
   createTelemetryRecord,
 } from "@zenyr/telemetry-domain";
@@ -30,11 +29,9 @@ export type TelemetryServiceDeps = {
   bufferPolicy?: Partial<TelemetryBufferPolicy>;
 };
 
-export type RecordTelemetryInput = {
-  name: TelemetryEventName;
-  sessionId?: string;
-  attributes?: TelemetryAttributesInput;
-};
+export type RecordTelemetryInput =
+  | Omit<TelemetryEventRecordInput, "nowMs">
+  | Omit<TelemetryMetricRecordInput, "nowMs">;
 
 const normalizeBufferPolicy = (
   input?: Partial<TelemetryBufferPolicy>,
@@ -71,13 +68,30 @@ export class TelemetryService {
   }
 
   async record(input: RecordTelemetryInput): Promise<void> {
+    const nowMs = this.#clock.nowMs();
+    const nextRecord =
+      input.kind === "metric"
+        ? createTelemetryRecord({
+            kind: "metric",
+            channel: input.channel,
+            name: input.name,
+            nowMs,
+            sessionId: input.sessionId,
+            attributes: input.attributes,
+            description: input.description,
+            unit: input.unit,
+            value: input.value,
+          })
+        : createTelemetryRecord({
+            channel: input.channel,
+            name: input.name,
+            nowMs,
+            sessionId: input.sessionId,
+            attributes: input.attributes,
+          });
+
     this.#buffer.push(
-      createTelemetryRecord({
-        name: input.name,
-        nowMs: this.#clock.nowMs(),
-        sessionId: input.sessionId,
-        attributes: input.attributes,
-      }),
+      nextRecord,
     );
 
     if (this.#buffer.length >= this.#bufferPolicy.maxBatchSize) {

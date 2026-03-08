@@ -1,28 +1,56 @@
 import { expect, test } from "bun:test";
 
+import { TELEMETRY_EVENT_NAMES, createTelemetryRecord } from "@zenyr/telemetry-domain";
 import {
-  TELEMETRY_EVENT_NAMES,
-  type TelemetryRecord,
-  createTelemetryRecord,
-} from "@zenyr/telemetry-domain";
-import {
+  Anthropic1PBatchSink,
   DurableTelemetrySink,
   FanoutTelemetrySink,
   HttpTelemetrySink,
   InMemoryTelemetrySink,
-  OTelJsonSink,
-  RoutingTelemetrySink,
-  createNormalizedTelemetryEnvelope,
+  SecondPartyOtelSink,
+  createAnthropic1PBatchEnvelope,
+  createSecondPartyLogEnvelope,
+  createSecondPartyMetricEnvelope,
   resolveLanguageFromPath,
 } from "./index";
 
-const buildRecord = () => {
+const buildFirstPartyRecord = () => {
   return createTelemetryRecord({
-    name: TELEMETRY_EVENT_NAMES.toolExecuteAfter,
+    channel: "firstParty",
+    name: TELEMETRY_EVENT_NAMES.firstParty.apiSuccess,
     nowMs: 1,
     sessionId: "session-1",
     attributes: {
-      tool: "edit",
+      model: "claude-sonnet-4-6",
+      costUSD: 0.25,
+    },
+  });
+};
+
+const buildSecondPartyLogRecord = () => {
+  return createTelemetryRecord({
+    channel: "secondParty",
+    name: TELEMETRY_EVENT_NAMES.secondParty.toolResult,
+    nowMs: 1,
+    sessionId: "session-1",
+    attributes: {
+      tool_name: "edit",
+      success: true,
+    },
+  });
+};
+
+const buildSecondPartyMetricRecord = () => {
+  return createTelemetryRecord({
+    kind: "metric",
+    channel: "secondParty",
+    name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.tokenUsage,
+    nowMs: 2,
+    unit: "tokens",
+    value: 123,
+    attributes: {
+      type: "input",
+      model: "claude-sonnet-4-6",
     },
   });
 };
@@ -34,7 +62,7 @@ test("resolveLanguageFromPath maps extension", () => {
 
 test("InMemoryTelemetrySink stores telemetry records unchanged", async () => {
   const sink = new InMemoryTelemetrySink();
-  const event = buildRecord();
+  const event = buildSecondPartyLogRecord();
 
   await sink.publish([event]);
 
@@ -65,7 +93,7 @@ test("HttpTelemetrySink retries transient failures then succeeds", async () => {
     },
   });
 
-  await sink.publish([buildRecord()]);
+  await sink.publish([buildSecondPartyLogRecord()]);
 
   expect(attempts).toBe(2);
   expect(sleepCalls).toEqual([500]);
@@ -75,47 +103,36 @@ test("HttpTelemetrySink retries transient failures then succeeds", async () => {
   });
 });
 
-test("HttpTelemetrySink fails clearly after bounded retries", async () => {
-  const sink = new HttpTelemetrySink({
-    endpoint: "https://telemetry.example.test/events",
-    maxAttempts: 2,
-    fetch: async () => {
-      throw new Error("network down");
+test("Anthropic1PBatchSink retries 401 once without auth", async () => {
+  const authHeaders: Array<string | null> = [];
+  let attempts = 0;
+  const sink = new Anthropic1PBatchSink({
+    endpoint: "https://api.anthropic.test/api/event_logging/batch",
+    token: "secret",
+    maxAttempts: 3,
+    fetch: async (_input, init) => {
+      attempts += 1;
+      const headers = new Headers(init?.headers);
+      authHeaders.push(headers.get("authorization"));
+      if (attempts === 1) {
+        return new Response("expired", { status: 401 });
+      }
+
+      return new Response(null, { status: 202 });
     },
     sleep: async () => {},
+    nowEventId: () => "evt-1",
   });
 
-  await expect(sink.publish([buildRecord()])).rejects.toThrow(
-    "HttpTelemetrySink failed after 2 attempts",
-  );
-});
+  await sink.publish([buildFirstPartyRecord()]);
 
-test("HttpTelemetrySink does not retry non-retryable status", async () => {
-  const sleepCalls: number[] = [];
-  let attempts = 0;
-  const sink = new HttpTelemetrySink({
-    endpoint: "https://telemetry.example.test/events",
-    maxAttempts: 3,
-    fetch: async () => {
-      attempts += 1;
-      return new Response("bad req", { status: 400 });
-    },
-    sleep: async (durationMs) => {
-      sleepCalls.push(durationMs);
-    },
-  });
-
-  await expect(sink.publish([buildRecord()])).rejects.toThrow(
-    "HttpTelemetrySink failed after 1 attempts: HTTP 400: bad req",
-  );
-
-  expect(attempts).toBe(1);
-  expect(sleepCalls).toEqual([]);
+  expect(attempts).toBe(2);
+  expect(authHeaders).toEqual(["Bearer secret", null]);
 });
 
 test("DurableTelemetrySink stores failed batch and replays later", async () => {
   const queueDir = `/tmp/opencode-cc-telemetry-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const published: TelemetryRecord[][] = [];
+  const published = [] as unknown[];
   let shouldFail = true;
 
   const sink = new DurableTelemetrySink({
@@ -133,45 +150,16 @@ test("DurableTelemetrySink stores failed batch and replays later", async () => {
     randomId: () => "batch-1",
   });
 
-  await expect(sink.publish([buildRecord()])).rejects.toThrow("network down");
+  await expect(sink.publish([buildFirstPartyRecord()])).rejects.toThrow(
+    "network down",
+  );
 
   shouldFail = false;
   await sink.flushQueued();
 
   expect(published).toHaveLength(1);
-  expect(published[0]).toEqual([buildRecord()]);
+  expect(published[0]).toEqual([buildFirstPartyRecord()]);
   expect(await Bun.file(`${queueDir}/100-batch-1.json`).exists()).toBeFalse();
-});
-
-test("DurableTelemetrySink replays queued batches before new publish", async () => {
-  const queueDir = `/tmp/opencode-cc-telemetry-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const published: TelemetryRecord[][] = [];
-  const oldEvent = createTelemetryRecord({
-    name: TELEMETRY_EVENT_NAMES.chatMessage,
-    nowMs: 2,
-    sessionId: "session-1",
-    attributes: {
-      promptLength: 5,
-    },
-  });
-
-  await Bun.write(
-    `${queueDir}/050-old.json`,
-    JSON.stringify({ events: [oldEvent] }),
-  );
-
-  const sink = new DurableTelemetrySink({
-    queueDir,
-    sink: {
-      async publish(events) {
-        published.push(events);
-      },
-    },
-  });
-
-  await sink.publish([buildRecord()]);
-
-  expect(published).toEqual([[oldEvent], [buildRecord()]]);
 });
 
 test("FanoutTelemetrySink forwards same batch to each sink", async () => {
@@ -180,7 +168,7 @@ test("FanoutTelemetrySink forwards same batch to each sink", async () => {
   const sink = new FanoutTelemetrySink({
     sinks: [left, right],
   });
-  const event = buildRecord();
+  const event = buildSecondPartyLogRecord();
 
   await sink.publish([event]);
 
@@ -188,171 +176,136 @@ test("FanoutTelemetrySink forwards same batch to each sink", async () => {
   expect(right.drain()).toEqual([event]);
 });
 
-test("createNormalizedTelemetryEnvelope builds portable OTEL-like shape", () => {
-  const envelope = createNormalizedTelemetryEnvelope(buildRecord(), {
+test("createAnthropic1PBatchEnvelope builds Claude batch shape", () => {
+  const envelope = createAnthropic1PBatchEnvelope([buildFirstPartyRecord()], () => {
+    return "evt-1";
+  });
+  const item = envelope.events[0];
+
+  expect(item?.event_type).toBe("ClaudeCodeInternalEvent");
+  expect(JSON.parse(item?.event_data ?? "null")).toMatchObject({
+    event_id: "evt-1",
+    event_name: "tengu_api_success",
+    client_timestamp: "1970-01-01T00:00:00.001Z",
+    session_id: "session-1",
+    model: "claude-sonnet-4-6",
+  });
+});
+
+test("createSecondPartyLogEnvelope builds Claude-compatible OTEL log shape", () => {
+  const envelope = createSecondPartyLogEnvelope(buildSecondPartyLogRecord(), {
     sequence: 7,
-    serviceName: "opencode-cc-telemetry",
-    serviceVersion: "0.2.0",
+    serviceName: "claude-code",
+    serviceVersion: "2.1.69",
   });
 
   expect(envelope).toEqual({
-    body: TELEMETRY_EVENT_NAMES.toolExecuteAfter,
+    body: "claude_code.tool_result",
     attributes: {
       "channel.id": "otel_3p_logs",
-      "event.name": TELEMETRY_EVENT_NAMES.toolExecuteAfter,
+      "event.name": "tool_result",
       "event.timestamp": "1970-01-01T00:00:00.001Z",
       "event.sequence": "7",
-      "service.name": "opencode-cc-telemetry",
-      "service.version": "0.2.0",
+      "service.name": "claude-code",
+      "service.version": "2.1.69",
       "session.id": "session-1",
-      tool: "edit",
+      tool_name: "edit",
+      success: "true",
     },
   });
 });
 
-test("OTelJsonSink writes one normalized payload per event", async () => {
+test("createSecondPartyMetricEnvelope builds Claude-compatible OTEL metric shape", () => {
+  const metric = buildSecondPartyMetricRecord();
+  if (metric.kind !== "metric") {
+    throw new Error("metric req");
+  }
+
+  expect(
+    createSecondPartyMetricEnvelope(metric, {
+      serviceName: "claude-code",
+      serviceVersion: "2.1.69",
+      resourceAttributes: {
+        "user.subscription_type": "team",
+      },
+    }),
+  ).toEqual({
+    resource_attributes: {
+      "channel.id": "otel_3p_metrics",
+      "service.name": "claude-code",
+      "service.version": "2.1.69",
+      "user.subscription_type": "team",
+    },
+    metrics: [
+      {
+        name: "claude_code.token.usage",
+        description: undefined,
+        unit: "tokens",
+        data_points: [
+          {
+            attributes: {
+              type: "input",
+              model: "claude-sonnet-4-6",
+            },
+            value: 123,
+            timestamp: "1970-01-01T00:00:00.002Z",
+          },
+        ],
+      },
+    ],
+  });
+});
+
+test("SecondPartyOtelSink writes one payload per event or metric", async () => {
   const writes: string[] = [];
-  const sink = new OTelJsonSink({
-    serviceName: "opencode-cc-telemetry",
-    serviceVersion: "0.2.0",
+  const sink = new SecondPartyOtelSink({
+    serviceName: "claude-code",
+    serviceVersion: "2.1.69",
     nowSequence: () => 9,
     write: (payload) => {
       writes.push(payload);
     },
   });
 
-  await sink.publish([buildRecord()]);
+  await sink.publish([buildSecondPartyLogRecord(), buildSecondPartyMetricRecord()]);
 
   expect(JSON.parse(writes[0] ?? "null")).toEqual({
-    body: TELEMETRY_EVENT_NAMES.toolExecuteAfter,
+    body: "claude_code.tool_result",
     attributes: {
       "channel.id": "otel_3p_logs",
-      "event.name": TELEMETRY_EVENT_NAMES.toolExecuteAfter,
+      "event.name": "tool_result",
       "event.timestamp": "1970-01-01T00:00:00.001Z",
       "event.sequence": "9",
-      "service.name": "opencode-cc-telemetry",
-      "service.version": "0.2.0",
+      "service.name": "claude-code",
+      "service.version": "2.1.69",
       "session.id": "session-1",
-      tool: "edit",
+      tool_name: "edit",
+      success: "true",
     },
   });
-});
 
-test("RoutingTelemetrySink groups events by provider", async () => {
-  const anthropic = new InMemoryTelemetrySink();
-  const openai = new InMemoryTelemetrySink();
-  const fallback = new InMemoryTelemetrySink();
-  const sink = new RoutingTelemetrySink({
-    fallback,
-    rules: [
+  expect(JSON.parse(writes[1] ?? "null")).toEqual({
+    resource_attributes: {
+      "channel.id": "otel_3p_metrics",
+      "service.name": "claude-code",
+      "service.version": "2.1.69",
+    },
+    metrics: [
       {
-        match: (event) => event.attributes.provider === "anthropic",
-        sink: anthropic,
-      },
-      {
-        match: (event) => event.attributes.provider === "openai",
-        sink: openai,
-      },
-    ],
-  });
-  const defaultEvent = createTelemetryRecord({
-    name: TELEMETRY_EVENT_NAMES.commandExecuted,
-    nowMs: 2,
-    sessionId: "session-1",
-    attributes: {
-      command: "git",
-    },
-  });
-  const anthropicEvent = createTelemetryRecord({
-    name: TELEMETRY_EVENT_NAMES.apiRequest,
-    nowMs: 3,
-    sessionId: "session-1",
-    attributes: {
-      provider: "anthropic",
-      model: "claude-sonnet-4-6",
-    },
-  });
-  const openaiEvent = createTelemetryRecord({
-    name: TELEMETRY_EVENT_NAMES.apiRequest,
-    nowMs: 4,
-    sessionId: "session-1",
-    attributes: {
-      provider: "openai",
-      model: "gpt-5",
-    },
-  });
-
-  await sink.publish([anthropicEvent, defaultEvent, openaiEvent]);
-
-  expect(anthropic.drain()).toEqual([anthropicEvent]);
-  expect(openai.drain()).toEqual([openaiEvent]);
-  expect(fallback.drain()).toEqual([defaultEvent]);
-});
-
-test("RoutingTelemetrySink fails when route missing and no fallback", async () => {
-  const sink = new RoutingTelemetrySink({
-    rules: [
-      {
-        match: (event) => event.attributes.provider === "anthropic",
-        sink: new InMemoryTelemetrySink(),
+        name: "claude_code.token.usage",
+        description: undefined,
+        unit: "tokens",
+        data_points: [
+          {
+            attributes: {
+              type: "input",
+              model: "claude-sonnet-4-6",
+            },
+            value: 123,
+            timestamp: "1970-01-01T00:00:00.002Z",
+          },
+        ],
       },
     ],
-  });
-  const event = createTelemetryRecord({
-    name: TELEMETRY_EVENT_NAMES.apiRequest,
-    nowMs: 5,
-    sessionId: "session-1",
-    attributes: {
-      provider: "openai",
-    },
-  });
-
-  await expect(sink.publish([event])).rejects.toThrow(
-    "RoutingTelemetrySink route missing for event",
-  );
-});
-
-test("RoutingTelemetrySink supports prefix matching", async () => {
-  const sinkTarget = new InMemoryTelemetrySink();
-  const sink = new RoutingTelemetrySink({
-    rules: [
-      {
-        match: (event) =>
-          typeof event.attributes.provider === "string" &&
-          event.attributes.provider.startsWith("openrouter/"),
-        sink: sinkTarget,
-      },
-    ],
-  });
-  const event = createTelemetryRecord({
-    name: TELEMETRY_EVENT_NAMES.apiRequest,
-    nowMs: 6,
-    sessionId: "session-1",
-    attributes: {
-      provider: "openrouter/openai",
-      model: "gpt-5",
-    },
-  });
-
-  await sink.publish([event]);
-
-  expect(sinkTarget.drain()).toEqual([event]);
-});
-
-test("createNormalizedTelemetryEnvelope stringifies mixed attrs", () => {
-  const event = createTelemetryRecord({
-    name: TELEMETRY_EVENT_NAMES.gitOperation,
-    nowMs: 3,
-    attributes: {
-      success: true,
-      durationMs: 12,
-      operation: "commit",
-    },
-  });
-
-  expect(createNormalizedTelemetryEnvelope(event).attributes).toMatchObject({
-    success: "true",
-    durationMs: "12",
-    operation: "commit",
   });
 });

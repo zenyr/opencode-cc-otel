@@ -3,49 +3,64 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Hooks, Plugin, PluginInput } from "@opencode-ai/plugin";
 import {
+  Anthropic1PBatchSink,
   ConsoleTelemetrySink,
   DurableTelemetrySink,
   FanoutTelemetrySink,
-  HttpTelemetrySink,
-  OTelJsonSink,
-  RoutingTelemetrySink,
+  SecondPartyOtelSink,
   resolveLanguageFromPath,
 } from "@zenyr/telemetry-adapters";
 import {
-  type ClockPort,
   DEFAULT_TELEMETRY_BUFFER_POLICY,
   SystemClock,
-  type TelemetryBufferPolicy,
   TelemetryService,
+  type ClockPort,
+  type TelemetryBufferPolicy,
   type TelemetrySinkPort,
 } from "@zenyr/telemetry-application";
 import { TELEMETRY_EVENT_NAMES } from "@zenyr/telemetry-domain";
 
 type EnvProvider = Record<string, string | undefined>;
 
-type TelemetryRouteMatchConfig = {
-  provider?: string;
-  providerPrefix?: string;
-  model?: string;
-  modelRegex?: string;
-};
-
-type TelemetryHttpRouteConfig = {
-  match: TelemetryRouteMatchConfig;
+type TelemetryHttpTarget = {
   endpoint: string;
   token?: string;
 };
 
 type TelemetryHttpConfigFile = {
-  default?: {
-    endpoint: string;
-    token?: string;
-  };
-  routes?: TelemetryHttpRouteConfig[];
+  default?: TelemetryHttpTarget;
+};
+
+type TelemetryOtelConfig = {
+  serviceName?: string;
+  serviceVersion?: string;
+  logsChannelId?: string;
+  metricsChannelId?: string;
+  resourceAttributes?: Record<string, string>;
+};
+
+type FirstPartyChannelConfig = {
+  enabled?: boolean;
+  sink: "http";
+  http?: TelemetryHttpConfigFile;
+};
+
+type SecondPartyChannelConfig = {
+  enabled?: boolean;
+  sink: "otel-json" | "console";
+  otel?: TelemetryOtelConfig;
+};
+
+type ThirdPartyChannelConfig = {
+  enabled?: boolean;
 };
 
 type TelemetryConfigFile = {
-  http?: TelemetryHttpConfigFile;
+  channels?: {
+    firstParty?: FirstPartyChannelConfig;
+    secondParty?: SecondPartyChannelConfig;
+    thirdParty?: ThirdPartyChannelConfig;
+  };
 };
 
 type RuntimeOptions = {
@@ -58,12 +73,21 @@ type ToolCallState = {
   startedAtMs: number;
 };
 
+type CommandCallState = {
+  startedAtMs: number;
+};
+
 type CompletionState = Map<string, number>;
 type ReplayableSink = TelemetrySinkPort & {
   flushQueued?: () => Promise<void>;
 };
 
+class NoopTelemetrySink implements TelemetrySinkPort {
+  async publish(): Promise<void> {}
+}
+
 const DEFAULT_ENV: EnvProvider = typeof Bun !== "undefined" ? Bun.env : {};
+const DEFAULT_CONFIG_PATH_SEGMENTS = ["opencode", "telemetry.jsonc"];
 
 const readString = (value: unknown): string | undefined => {
   return typeof value === "string" ? value : undefined;
@@ -109,22 +133,21 @@ const isAssistantMessage = (message: unknown): boolean => {
   return readString(getProp(message, "role")) === "assistant";
 };
 
-const partTextLength = (parts: unknown): number => {
+const partText = (parts: unknown): string => {
   if (!Array.isArray(parts)) {
-    return 0;
+    return "";
   }
 
-  let total = 0;
-
+  let text = "";
   for (const part of parts) {
     if (readString(getProp(part, "type")) !== "text") {
       continue;
     }
 
-    total += (readString(getProp(part, "text")) ?? "").length;
+    text += readString(getProp(part, "text")) ?? "";
   }
 
-  return total;
+  return text;
 };
 
 const diffTotals = (
@@ -143,81 +166,6 @@ const diffTotals = (
     },
     { additions: 0, deletions: 0, files: 0 },
   );
-};
-
-const recordAssistantMessage = async (
-  service: TelemetryService,
-  seenCompletions: CompletionState,
-  message: unknown,
-): Promise<void> => {
-  if (!isAssistantMessage(message)) {
-    return;
-  }
-
-  const messageId = readString(getProp(message, "id"));
-  const sessionId = readString(getProp(message, "sessionID"));
-  const completedAtMs = readNumber(
-    getProp(getProp(message, "time"), "completed"),
-  );
-
-  if (!messageId || completedAtMs === undefined) {
-    return;
-  }
-
-  if (seenCompletions.get(messageId) === completedAtMs) {
-    return;
-  }
-
-  seenCompletions.set(messageId, completedAtMs);
-
-  const createdAtMs = readNumber(getProp(getProp(message, "time"), "created"));
-  const durationMs =
-    createdAtMs === undefined
-      ? undefined
-      : Math.max(0, completedAtMs - createdAtMs);
-  const error = getProp(message, "error");
-  const commonAttributes = {
-    messageId,
-    model: readString(getProp(message, "modelID")),
-    provider: readString(getProp(message, "providerID")),
-    durationMs,
-    completedAtMs,
-    success: error === undefined,
-  };
-
-  if (error) {
-    await service.record({
-      name: TELEMETRY_EVENT_NAMES.apiError,
-      sessionId,
-      attributes: {
-        ...commonAttributes,
-        errorName: readString(getProp(error, "name")) ?? "UnknownError",
-        errorMessage: readString(getProp(getProp(error, "data"), "message")),
-        statusCode: readNumber(getProp(getProp(error, "data"), "statusCode")),
-      },
-    });
-    return;
-  }
-
-  await service.record({
-    name: TELEMETRY_EVENT_NAMES.apiRequest,
-    sessionId,
-    attributes: {
-      ...commonAttributes,
-      costUsd: readNumber(getProp(message, "cost")),
-      inputTokens: readNumber(getProp(getProp(message, "tokens"), "input")),
-      outputTokens: readNumber(getProp(getProp(message, "tokens"), "output")),
-      reasoningTokens: readNumber(
-        getProp(getProp(message, "tokens"), "reasoning"),
-      ),
-      cacheReadTokens: readNumber(
-        getProp(getProp(getProp(message, "tokens"), "cache"), "read"),
-      ),
-      cacheWriteTokens: readNumber(
-        getProp(getProp(getProp(message, "tokens"), "cache"), "write"),
-      ),
-    },
-  });
 };
 
 const readInt = (value: string | undefined, fallback: number): number => {
@@ -243,8 +191,6 @@ const resolveBufferPolicy = (
     ),
   };
 };
-
-const DEFAULT_CONFIG_PATH_SEGMENTS = ["opencode", "telemetry.jsonc"];
 
 const stripJsonComments = (input: string): string => {
   let output = "";
@@ -351,103 +297,13 @@ export const loadTelemetryConfig = (
     return undefined;
   }
 
-  return parseJsoncObject<TelemetryConfigFile>(
-    readFileSync(configPath, "utf8"),
-  );
+  return parseJsoncObject<TelemetryConfigFile>(readFileSync(configPath, "utf8"));
 };
 
-const buildHttpSink = (
-  env: EnvProvider,
-  endpoint: string,
-  token?: string,
-): HttpTelemetrySink => {
-  const resolvedToken =
-    resolveConfigValue(env, token) ?? env.OPENCODE_TELEMETRY_HTTP_TOKEN;
-
-  return new HttpTelemetrySink({
-    endpoint,
-    token: resolvedToken,
-    maxAttempts: readInt(env.OPENCODE_TELEMETRY_HTTP_MAX_ATTEMPTS, 8),
-    backoffMs: readInt(env.OPENCODE_TELEMETRY_HTTP_BACKOFF_MS, 500),
-  });
-};
-
-const matchRoute = (
-  config: TelemetryRouteMatchConfig,
-  event: Parameters<RoutingTelemetrySink["publish"]>[0][number],
-): boolean => {
-  const provider = event.attributes.provider;
-  const model = event.attributes.model;
-
-  if (config.provider !== undefined && provider !== config.provider) {
-    return false;
-  }
-
-  if (
-    config.providerPrefix !== undefined &&
-    (typeof provider !== "string" ||
-      !provider.startsWith(config.providerPrefix))
-  ) {
-    return false;
-  }
-
-  if (config.model !== undefined && model !== config.model) {
-    return false;
-  }
-
-  if (
-    config.modelRegex !== undefined &&
-    (typeof model !== "string" || !new RegExp(config.modelRegex).test(model))
-  ) {
-    return false;
-  }
-
-  return true;
-};
-
-const buildHttpRoutingSink = (env: EnvProvider): TelemetrySinkPort => {
-  const config = loadTelemetryConfig(env)?.http;
-  const fallbackEndpoint =
-    resolveConfigValue(env, config?.default?.endpoint) ??
-    env.OPENCODE_TELEMETRY_HTTP_ENDPOINT;
-  const fallbackToken = resolveConfigValue(env, config?.default?.token);
-  const rules = (config?.routes ?? []).map((route) => {
-    return {
-      match: (
-        event: Parameters<RoutingTelemetrySink["publish"]>[0][number],
-      ) => {
-        return matchRoute(route.match, event);
-      },
-      sink: buildHttpSink(
-        env,
-        resolveConfigValue(env, route.endpoint) ?? "",
-        route.token,
-      ),
-    };
-  });
-
-  if (rules.length === 0) {
-    if (!fallbackEndpoint) {
-      throw new Error("OPENCODE_TELEMETRY_HTTP_ENDPOINT req for http sink");
-    }
-
-    return buildHttpSink(env, fallbackEndpoint, fallbackToken);
-  }
-
-  return new RoutingTelemetrySink({
-    rules,
-    fallback: fallbackEndpoint
-      ? buildHttpSink(env, fallbackEndpoint, fallbackToken)
-      : undefined,
-  });
-};
-
-const withDurabilityFromEnv = (
+const withDurability = (
   sink: TelemetrySinkPort,
-  env: EnvProvider,
+  queueDir: string | undefined,
 ): ReplayableSink => {
-  const queueDir = env.OPENCODE_TELEMETRY_QUEUE_DIR;
-
   if (!queueDir) {
     return sink;
   }
@@ -458,59 +314,317 @@ const withDurabilityFromEnv = (
   });
 };
 
-const withFanoutFromEnv = (
-  sink: TelemetrySinkPort,
-  env: EnvProvider,
-): TelemetrySinkPort => {
-  if (env.OPENCODE_TELEMETRY_MIRROR_CONSOLE !== "1") {
-    return sink;
-  }
-
-  return new FanoutTelemetrySink({
-    sinks: [sink, new ConsoleTelemetrySink()],
-  });
-};
-
 const startReplay = (sink: ReplayableSink): Promise<void> => {
   return sink.flushQueued?.() ?? Promise.resolve();
 };
 
-export const createTelemetrySinkFromEnv = (
-  env: EnvProvider = DEFAULT_ENV,
-): TelemetrySinkPort => {
-  const sinkType =
-    env.OPENCODE_TELEMETRY_SINK ??
-    (env.OPENCODE_TELEMETRY_HTTP_ENDPOINT ? "http" : "console");
-
-  if (sinkType === "console") {
-    return withDurabilityFromEnv(
-      withFanoutFromEnv(new ConsoleTelemetrySink(), env),
-      env,
-    );
+const buildFirstPartySink = (
+  env: EnvProvider,
+  channel?: FirstPartyChannelConfig,
+): ReplayableSink | undefined => {
+  if (channel?.enabled === false) {
+    return undefined;
   }
 
+  const endpoint =
+    resolveConfigValue(env, channel?.http?.default?.endpoint) ??
+    env.OPENCODE_TELEMETRY_HTTP_ENDPOINT;
+  if (!endpoint) {
+    return undefined;
+  }
+
+  return withDurability(
+    new Anthropic1PBatchSink({
+      endpoint,
+      token:
+        resolveConfigValue(env, channel?.http?.default?.token) ??
+        env.OPENCODE_TELEMETRY_HTTP_TOKEN,
+      maxAttempts: readInt(env.OPENCODE_TELEMETRY_HTTP_MAX_ATTEMPTS, 8),
+      backoffMs: readInt(env.OPENCODE_TELEMETRY_HTTP_BACKOFF_MS, 500),
+    }),
+    env.OPENCODE_TELEMETRY_QUEUE_DIR,
+  );
+};
+
+const buildSecondPartySink = (
+  env: EnvProvider,
+  channel?: SecondPartyChannelConfig,
+): TelemetrySinkPort | undefined => {
+  if (channel?.enabled === false) {
+    return undefined;
+  }
+
+  if (channel?.sink === "console") {
+    return new ConsoleTelemetrySink();
+  }
+
+  return new SecondPartyOtelSink({
+    serviceName:
+      resolveConfigValue(env, channel?.otel?.serviceName) ??
+      env.OPENCODE_TELEMETRY_SERVICE_NAME,
+    serviceVersion:
+      resolveConfigValue(env, channel?.otel?.serviceVersion) ??
+      env.OPENCODE_TELEMETRY_SERVICE_VERSION,
+    logsChannelId:
+      resolveConfigValue(env, channel?.otel?.logsChannelId) ??
+      env.OPENCODE_TELEMETRY_LOGS_CHANNEL_ID,
+    metricsChannelId:
+      resolveConfigValue(env, channel?.otel?.metricsChannelId) ??
+      env.OPENCODE_TELEMETRY_METRICS_CHANNEL_ID,
+    resourceAttributes: channel?.otel?.resourceAttributes,
+  });
+};
+
+const buildSinkFromChannels = (env: EnvProvider): ReplayableSink => {
+  const config = loadTelemetryConfig(env);
+  const channels = config?.channels;
+
+  if (channels?.thirdParty?.enabled) {
+    throw new Error("thirdParty telemetry unsupported yet");
+  }
+
+  const firstParty = buildFirstPartySink(env, channels?.firstParty);
+  const secondParty = buildSecondPartySink(env, channels?.secondParty);
+  const sinks = [firstParty, secondParty].filter(
+    (sink): sink is ReplayableSink => sink !== undefined,
+  );
+
+  if (sinks.length === 0) {
+    return new NoopTelemetrySink();
+  }
+
+  if (sinks.length === 1) {
+    return sinks[0];
+  }
+
+  return new FanoutTelemetrySink({ sinks });
+};
+
+export const createTelemetrySinkFromEnv = (
+  env: EnvProvider = DEFAULT_ENV,
+): ReplayableSink => {
+  const config = loadTelemetryConfig(env);
+  if (config?.channels) {
+    return buildSinkFromChannels(env);
+  }
+
+  const sinkType =
+    env.OPENCODE_TELEMETRY_SINK ??
+    (env.OPENCODE_TELEMETRY_HTTP_ENDPOINT ? "http" : "otel-json");
+
   if (sinkType === "http") {
-    return withDurabilityFromEnv(
-      withFanoutFromEnv(buildHttpRoutingSink(env), env),
-      env,
-    );
+    const firstParty = buildFirstPartySink(env, {
+      sink: "http",
+    });
+    if (!firstParty) {
+      throw new Error("OPENCODE_TELEMETRY_HTTP_ENDPOINT req for http sink");
+    }
+    return firstParty;
   }
 
   if (sinkType === "otel-json") {
-    return withDurabilityFromEnv(
-      withFanoutFromEnv(
-        new OTelJsonSink({
-          serviceName: env.OPENCODE_TELEMETRY_SERVICE_NAME,
-          serviceVersion: env.OPENCODE_TELEMETRY_SERVICE_VERSION,
-          channelId: env.OPENCODE_TELEMETRY_CHANNEL_ID,
-        }),
-        env,
-      ),
-      env,
+    return (
+      buildSecondPartySink(env, {
+        sink: "otel-json",
+      }) ?? new NoopTelemetrySink()
     );
   }
 
+  if (sinkType === "console") {
+    return new ConsoleTelemetrySink();
+  }
+
   throw new Error(`Unsupported telemetry sink: ${sinkType}`);
+};
+
+const recordApiSuccess = async (
+  service: TelemetryService,
+  seenCompletions: CompletionState,
+  message: unknown,
+): Promise<void> => {
+  if (!isAssistantMessage(message)) {
+    return;
+  }
+
+  const messageId = readString(getProp(message, "id"));
+  const sessionId = readString(getProp(message, "sessionID"));
+  const completedAtMs = readNumber(getProp(getProp(message, "time"), "completed"));
+
+  if (!messageId || completedAtMs === undefined) {
+    return;
+  }
+
+  if (seenCompletions.get(messageId) === completedAtMs) {
+    return;
+  }
+
+  seenCompletions.set(messageId, completedAtMs);
+
+  const createdAtMs = readNumber(getProp(getProp(message, "time"), "created"));
+  const durationMs =
+    createdAtMs === undefined ? undefined : Math.max(0, completedAtMs - createdAtMs);
+  const error = getProp(message, "error");
+  const model = readString(getProp(message, "modelID"));
+  const provider = readString(getProp(message, "providerID"));
+  const inputTokens = readNumber(getProp(getProp(message, "tokens"), "input"));
+  const outputTokens = readNumber(getProp(getProp(message, "tokens"), "output"));
+  const cacheReadTokens = readNumber(
+    getProp(getProp(getProp(message, "tokens"), "cache"), "read"),
+  );
+  const cacheCreationTokens = readNumber(
+    getProp(getProp(getProp(message, "tokens"), "cache"), "write"),
+  );
+  const costUsd = readNumber(getProp(message, "cost"));
+
+  if (error) {
+    await service.record({
+      channel: "firstParty",
+      name: TELEMETRY_EVENT_NAMES.firstParty.apiError,
+      sessionId,
+      attributes: {
+        model,
+        provider,
+        durationMs,
+        error: readString(getProp(getProp(error, "data"), "message")),
+        status: readNumber(getProp(getProp(error, "data"), "statusCode")),
+      },
+    });
+
+    await service.record({
+      channel: "secondParty",
+      name: TELEMETRY_EVENT_NAMES.secondParty.apiError,
+      sessionId,
+      attributes: {
+        model,
+        provider,
+        duration_ms: durationMs,
+        error: readString(getProp(getProp(error, "data"), "message")),
+        status_code: readNumber(getProp(getProp(error, "data"), "statusCode")),
+      },
+    });
+    return;
+  }
+
+  await service.record({
+    channel: "firstParty",
+    name: TELEMETRY_EVENT_NAMES.firstParty.apiSuccess,
+    sessionId,
+    attributes: {
+      model,
+      provider,
+      durationMs,
+      inputTokens,
+      outputTokens,
+      cachedInputTokens: cacheReadTokens,
+      cacheCreationTokens,
+      costUSD: costUsd,
+    },
+  });
+
+  await service.record({
+    channel: "secondParty",
+    name: TELEMETRY_EVENT_NAMES.secondParty.apiRequest,
+    sessionId,
+    attributes: {
+      model,
+      provider,
+      duration_ms: durationMs,
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      cache_read_tokens: cacheReadTokens,
+      cache_creation_tokens: cacheCreationTokens,
+      cost_usd: costUsd,
+    },
+  });
+
+  if (costUsd !== undefined) {
+    await service.record({
+      kind: "metric",
+      channel: "secondParty",
+      name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.costUsage,
+      sessionId,
+      unit: "USD",
+      value: costUsd,
+      attributes: {
+        model,
+      },
+    });
+  }
+
+  const tokenMetrics = [
+    ["input", inputTokens],
+    ["output", outputTokens],
+    ["cacheRead", cacheReadTokens],
+    ["cacheCreation", cacheCreationTokens],
+  ] as const;
+
+  for (const [type, value] of tokenMetrics) {
+    if (value === undefined) {
+      continue;
+    }
+
+    await service.record({
+      kind: "metric",
+      channel: "secondParty",
+      name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.tokenUsage,
+      sessionId,
+      unit: "tokens",
+      value,
+      attributes: {
+        model,
+        type,
+      },
+    });
+  }
+};
+
+const commandStateKey = (
+  sessionId: string | undefined,
+  command: string | undefined,
+  argumentsText: string | undefined,
+): string => {
+  return [sessionId ?? "", command ?? "", argumentsText ?? ""].join(":");
+};
+
+const recordCommandMetrics = async (
+  service: TelemetryService,
+  sessionId: string | undefined,
+  command: string | undefined,
+  argumentsText: string | undefined,
+  durationMs: number | undefined,
+): Promise<void> => {
+  const operation =
+    command === "git" && argumentsText?.includes("commit")
+      ? TELEMETRY_EVENT_NAMES.secondPartyMetrics.commitCount
+      : command === "gh" && argumentsText?.includes("pr create")
+        ? TELEMETRY_EVENT_NAMES.secondPartyMetrics.pullRequestCount
+        : undefined;
+
+  if (operation) {
+    await service.record({
+      kind: "metric",
+      channel: "secondParty",
+      name: operation,
+      sessionId,
+      unit: "{count}",
+      value: 1,
+      attributes: {},
+    });
+  }
+
+  if (durationMs !== undefined) {
+    await service.record({
+      kind: "metric",
+      channel: "secondParty",
+      name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.activeTimeTotal,
+      sessionId,
+      unit: "s",
+      value: Math.max(0, durationMs / 1000),
+      attributes: {
+        type: "cli",
+      },
+    });
+  }
 };
 
 export const createOpencodeHooks = (
@@ -519,8 +633,7 @@ export const createOpencodeHooks = (
 ): Hooks => {
   const env = options.env ?? DEFAULT_ENV;
   const clock = options.clock ?? new SystemClock();
-  const sink = (options.sink ??
-    createTelemetrySinkFromEnv(env)) as ReplayableSink;
+  const sink = (options.sink ?? createTelemetrySinkFromEnv(env)) as ReplayableSink;
   const service = new TelemetryService({
     sink,
     clock,
@@ -528,225 +641,183 @@ export const createOpencodeHooks = (
   });
   const ready = startReplay(sink);
   const toolCalls = new Map<string, ToolCallState>();
+  const commandCalls = new Map<string, CommandCallState>();
   const seenCompletions: CompletionState = new Map();
+
   const record = async (
-    input: Parameters<TelemetryService["record"]>[0],
+    telemetryInput: Parameters<TelemetryService["record"]>[0],
   ): Promise<void> => {
     await ready;
-    await service.record(input);
+    await service.record(telemetryInput);
   };
 
   return {
     "chat.message": async (messageInput, messageOutput) => {
+      const prompt = partText(messageOutput.parts);
+      const promptLength = prompt.length;
+
       await record({
-        name: TELEMETRY_EVENT_NAMES.chatMessage,
+        channel: "firstParty",
+        name: TELEMETRY_EVENT_NAMES.firstParty.inputPrompt,
         sessionId: messageInput.sessionID,
         attributes: {
-          agent: messageInput.agent,
-          messageId: messageInput.messageID,
+          promptLength,
           model: messageInput.model?.modelID,
-          promptLength: partTextLength(messageOutput.parts),
           provider: messageInput.model?.providerID,
-          variant: messageInput.variant,
+        },
+      });
+
+      await record({
+        channel: "secondParty",
+        name: TELEMETRY_EVENT_NAMES.secondParty.userPrompt,
+        sessionId: messageInput.sessionID,
+        attributes: {
+          "prompt.id": messageInput.messageID,
+          prompt_length: promptLength,
+          model: messageInput.model?.modelID,
+          provider: messageInput.model?.providerID,
         },
       });
     },
 
-    config: async (config) => {
+    config: async () => {
       await record({
-        name: TELEMETRY_EVENT_NAMES.configLoaded,
+        kind: "metric",
+        channel: "secondParty",
+        name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.sessionCount,
+        unit: "{count}",
+        value: 1,
         attributes: {
           directory: input.directory,
           worktree: input.worktree,
-          hasModel: Boolean(getProp(config, "model")),
         },
       });
     },
 
     event: async ({ event }) => {
-      await record({
-        name: TELEMETRY_EVENT_NAMES.eventReceived,
-        attributes: {
-          eventType: eventType(event),
-        },
-      });
-
       if (eventType(event) === "message.updated") {
-        await recordAssistantMessage(
-          service,
-          seenCompletions,
-          getProp(eventProperties(event), "info"),
-        );
+        await ready;
+        await recordApiSuccess(service, seenCompletions, getProp(eventProperties(event), "info"));
       }
 
       if (eventType(event) === "session.diff") {
         const properties = eventProperties(event);
+        const sessionId = readString(getProp(properties, "sessionID"));
         const totals = diffTotals(getProp(properties, "diff"));
 
-        await record({
-          name: TELEMETRY_EVENT_NAMES.sessionDiff,
-          sessionId: readString(getProp(properties, "sessionID")),
-          attributes: totals,
-        });
-      }
-
-      if (eventType(event) === "command.executed") {
-        const properties = eventProperties(event);
-        const command = readString(getProp(properties, "name"));
-        const argumentsText = readString(getProp(properties, "arguments"));
-        const operation =
-          command === "git" && argumentsText?.includes("commit")
-            ? "commit"
-            : command === "gh" && argumentsText?.includes("pr create")
-              ? "pull_request"
-              : undefined;
-
-        await record({
-          name: TELEMETRY_EVENT_NAMES.commandExecuted,
-          sessionId: readString(getProp(properties, "sessionID")),
-          attributes: {
-            command,
-            arguments: argumentsText,
-            messageId: readString(getProp(properties, "messageID")),
-          },
-        });
-
-        if (operation) {
+        if (totals.additions > 0) {
           await record({
-            name: TELEMETRY_EVENT_NAMES.gitOperation,
-            sessionId: readString(getProp(properties, "sessionID")),
+            kind: "metric",
+            channel: "secondParty",
+            name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.linesOfCodeCount,
+            sessionId,
+            unit: "{count}",
+            value: totals.additions,
             attributes: {
-              command,
-              arguments: argumentsText,
-              messageId: readString(getProp(properties, "messageID")),
-              operation,
-              success: true,
+              type: "added",
+            },
+          });
+        }
+
+        if (totals.deletions > 0) {
+          await record({
+            kind: "metric",
+            channel: "secondParty",
+            name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.linesOfCodeCount,
+            sessionId,
+            unit: "{count}",
+            value: totals.deletions,
+            attributes: {
+              type: "removed",
             },
           });
         }
       }
 
-      if (eventType(event) === "file.edited") {
+      if (eventType(event) === "command.executed") {
         const properties = eventProperties(event);
-        const filePath = readString(getProp(properties, "file"));
+        const sessionId = readString(getProp(properties, "sessionID"));
+        const command = readString(getProp(properties, "name"));
+        const argumentsText = readString(getProp(properties, "arguments"));
+        const key = commandStateKey(sessionId, command, argumentsText);
+        const state = commandCalls.get(key);
+        commandCalls.delete(key);
+        const durationMs = state
+          ? Math.max(0, clock.nowMs() - state.startedAtMs)
+          : undefined;
 
         await record({
-          name: TELEMETRY_EVENT_NAMES.fileEdited,
+          channel: "firstParty",
+          name: TELEMETRY_EVENT_NAMES.firstParty.inputCommand,
+          sessionId,
           attributes: {
-            filePath,
-            language: filePath ? resolveLanguageFromPath(filePath) : undefined,
+            input: [command, argumentsText].filter(Boolean).join(" "),
           },
         });
-      }
 
-      if (eventType(event) === "session.created") {
-        const properties = eventProperties(event);
-        const info = getProp(properties, "info");
-        const summary = getProp(info, "summary");
-
-        await record({
-          name: TELEMETRY_EVENT_NAMES.sessionCreated,
-          sessionId: readString(getProp(info, "id")),
-          attributes: {
-            directory: readString(getProp(info, "directory")),
-            title: readString(getProp(info, "title")),
-            additions: readNumber(getProp(summary, "additions")),
-            deletions: readNumber(getProp(summary, "deletions")),
-            files: readNumber(getProp(summary, "files")),
-          },
-        });
-      }
-
-      if (eventType(event) === "session.idle") {
-        const properties = eventProperties(event);
-
-        await record({
-          name: TELEMETRY_EVENT_NAMES.sessionIdle,
-          sessionId: readString(getProp(properties, "sessionID")),
-        });
-      }
-
-      if (eventType(event) === "session.error") {
-        const properties = eventProperties(event);
-        const error = getProp(properties, "error");
-
-        await record({
-          name: TELEMETRY_EVENT_NAMES.sessionError,
-          sessionId: readString(getProp(properties, "sessionID")),
-          attributes: {
-            errorName: readString(getProp(error, "name")) ?? "UnknownError",
-            errorMessage: readString(
-              getProp(getProp(error, "data"), "message"),
-            ),
-            provider: readString(getProp(getProp(error, "data"), "providerID")),
-            statusCode: readNumber(
-              getProp(getProp(error, "data"), "statusCode"),
-            ),
-          },
-        });
-      }
-
-      if (eventType(event) === "session.status") {
-        const properties = eventProperties(event);
-        const status = getProp(properties, "status");
-
-        await record({
-          name: TELEMETRY_EVENT_NAMES.sessionStatus,
-          sessionId: readString(getProp(properties, "sessionID")),
-          attributes: {
-            status: readString(getProp(status, "type")),
-            retryAttempt: readNumber(getProp(status, "attempt")),
-            nextRetryDelayMs: readNumber(getProp(status, "next")),
-            errorMessage: readString(getProp(status, "message")),
-          },
-        });
+        await recordCommandMetrics(
+          service,
+          sessionId,
+          command,
+          argumentsText,
+          durationMs,
+        );
       }
     },
 
     "permission.ask": async (permission, output) => {
+      const toolName = permissionName(permission);
+      const decision = output.status === "allow" ? "accept" : "reject";
+      const lowerToolName = toolName.toLowerCase();
+      const isCodeEditTool =
+        lowerToolName.includes("edit") ||
+        lowerToolName.includes("write") ||
+        lowerToolName.includes("notebook");
+
       await record({
-        name: TELEMETRY_EVENT_NAMES.permissionAsk,
+        channel: "secondParty",
+        name: TELEMETRY_EVENT_NAMES.secondParty.toolDecision,
         sessionId: readString(getProp(permission, "sessionID")),
         attributes: {
-          status: output.status,
-          permission: permissionName(permission),
+          tool_name: toolName,
+          decision,
+          source: "unknown",
         },
       });
+
+      if (isCodeEditTool) {
+        await record({
+          kind: "metric",
+          channel: "secondParty",
+          name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.codeEditToolDecision,
+          sessionId: readString(getProp(permission, "sessionID")),
+          unit: "{count}",
+          value: 1,
+          attributes: {
+            decision,
+            source: "unknown",
+            tool_name: toolName,
+          },
+        });
+      }
     },
 
     "command.execute.before": async (commandInput) => {
-      const isGitCommit =
-        commandInput.command === "git" &&
-        commandInput.arguments.includes("commit");
-      const isGitPrCreate =
-        commandInput.command === "gh" &&
-        commandInput.arguments.includes("pr create");
-
-      await record({
-        name: TELEMETRY_EVENT_NAMES.commandExecuteBefore,
-        sessionId: commandInput.sessionID,
-        attributes: {
-          command: commandInput.command,
-          arguments: commandInput.arguments,
-          isGitCommit,
-          isGitPrCreate,
+      commandCalls.set(
+        commandStateKey(
+          commandInput.sessionID,
+          commandInput.command,
+          commandInput.arguments,
+        ),
+        {
+          startedAtMs: clock.nowMs(),
         },
-      });
+      );
     },
 
     "tool.execute.before": async (toolInput) => {
       toolCalls.set(toolInput.callID, {
         startedAtMs: clock.nowMs(),
-      });
-
-      await record({
-        name: TELEMETRY_EVENT_NAMES.toolExecuteBefore,
-        sessionId: toolInput.sessionID,
-        attributes: {
-          tool: toolInput.tool,
-          callId: toolInput.callID,
-          timestampSource: "hook",
-        },
       });
     },
 
@@ -754,23 +825,34 @@ export const createOpencodeHooks = (
       const state = toolCalls.get(toolInput.callID);
       toolCalls.delete(toolInput.callID);
 
-      const durationMs = state
-        ? Math.max(0, clock.nowMs() - state.startedAtMs)
-        : 0;
+      const durationMs = state ? Math.max(0, clock.nowMs() - state.startedAtMs) : 0;
       const filePath = metadataFilePath(toolOutput.metadata);
       const language = filePath ? resolveLanguageFromPath(filePath) : undefined;
+      const outputSizeBytes = Buffer.byteLength(String(toolOutput.output ?? ""));
 
       await record({
-        name: TELEMETRY_EVENT_NAMES.toolExecuteAfter,
+        channel: "firstParty",
+        name: TELEMETRY_EVENT_NAMES.firstParty.toolUseSuccess,
         sessionId: toolInput.sessionID,
         attributes: {
-          tool: toolInput.tool,
-          callId: toolInput.callID,
+          toolName: toolInput.tool,
           durationMs,
-          filePath,
+          toolResultSizeBytes: outputSizeBytes,
+          fileExtension: language,
+        },
+      });
+
+      await record({
+        channel: "secondParty",
+        name: TELEMETRY_EVENT_NAMES.secondParty.toolResult,
+        sessionId: toolInput.sessionID,
+        attributes: {
+          tool_name: toolInput.tool,
+          success: true,
+          duration_ms: durationMs,
+          tool_result_size_bytes: outputSizeBytes,
+          file_path: filePath,
           language,
-          timestampSource: "hook",
-          title: toolOutput.title,
         },
       });
     },

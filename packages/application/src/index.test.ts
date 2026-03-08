@@ -8,15 +8,16 @@ import { TelemetryService } from "./index";
 
 const buildRecordInput = () => {
   return {
-    name: TELEMETRY_EVENT_NAMES.toolExecuteBefore,
+    channel: "secondParty" as const,
+    name: TELEMETRY_EVENT_NAMES.secondParty.toolResult,
     sessionId: "session-1",
     attributes: {
-      tool: "edit",
+      tool_name: "edit",
     },
   };
 };
 
-test("TelemetryService publishes one normalized event", async () => {
+test("TelemetryService publishes one Claude-compatible event", async () => {
   const published: TelemetryRecord[] = [];
 
   const service = new TelemetryService({
@@ -34,11 +35,13 @@ test("TelemetryService publishes one normalized event", async () => {
 
   expect(published).toHaveLength(1);
   expect(published[0]).toEqual({
-    name: TELEMETRY_EVENT_NAMES.toolExecuteBefore,
+    kind: "event",
+    channel: "secondParty",
+    name: TELEMETRY_EVENT_NAMES.secondParty.toolResult,
     timestamp: "1970-01-01T00:00:00.001Z",
     sessionId: "session-1",
     attributes: {
-      tool: "edit",
+      tool_name: "edit",
     },
   });
 });
@@ -94,13 +97,13 @@ test("TelemetryService flushes automatically at maxBatchSize", async () => {
   await service.record(buildRecordInput());
   await service.record({
     ...buildRecordInput(),
-    name: TELEMETRY_EVENT_NAMES.toolExecuteAfter,
+    name: TELEMETRY_EVENT_NAMES.secondParty.apiRequest,
   });
 
   expect(publishedBatches).toHaveLength(1);
   expect(publishedBatches[0]?.map((event) => event.name)).toEqual([
-    TELEMETRY_EVENT_NAMES.toolExecuteBefore,
-    TELEMETRY_EVENT_NAMES.toolExecuteAfter,
+    TELEMETRY_EVENT_NAMES.secondParty.toolResult,
+    TELEMETRY_EVENT_NAMES.secondParty.apiRequest,
   ]);
 });
 
