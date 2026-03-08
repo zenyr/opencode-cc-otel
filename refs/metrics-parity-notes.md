@@ -29,6 +29,14 @@ Full reverse-engineering notes are kept locally and are excluded from git.
 - API success / API error
 - startup / session lifecycle
 
+## Channel priority
+
+- first-party: Anthropic-owned / Claude official endpoint reporting
+- second-party: OTEL reporting for team and enterprise usage
+- third-party: Datadog, warehouse, analytics, or other vendor-owned reporting, unsupported for now
+- second-party OTEL is the core package goal
+- first-party and second-party should be independently trackable and independently on/off
+
 ## Behavior inferred from analysis
 
 - telemetry is split across multiple channels, not one sink
@@ -39,13 +47,16 @@ Full reverse-engineering notes are kept locally and are excluded from git.
 
 ## Portable implementation implications
 
+- treat Claude payload fields and event names as primary contract when exposed by OpenCode hooks
+- avoid introducing repo-local event names as external contract unless used only as temporary internal translation
+- keep first-party, second-party, and third-party delivery as separate channel controls, not one global sink switch
 - model prompt intake as first-class telemetry
 - record tool lifecycle with duration and file/language metadata when available
 - record API usage and API error separately
 - record command execution and detect successful commit/PR creation heuristically
 - aggregate diff/file activity into simple portable attrs
 - support buffered HTTP publish, retry/backoff, and durable replay
-- expose an OTEL-friendly normalized envelope for downstream systems
+- expose OTEL-friendly sink output as a downstream adapter, not as replacement for Claude-compatible capture
 
 ## Non-goals for public docs
 
@@ -66,7 +77,11 @@ Current implementation already covers:
 - permission decisions
 - API usage and error
 - command and git operation telemetry
-- session lifecycle and diff summaries
-- buffered HTTP, fanout, durability, and OTEL-style JSON export
+- diff summaries and derived metrics
+- buffered HTTP, durability, and Claude-compatible OTEL-style JSON export
+
+Current implementation still diverges from target in one major way:
+
+- identity/trust/org enrichment still cannot fully match Claude raw payload schema from plugin-only APIs
 
 Remaining work should focus on public-safe parity gaps only.

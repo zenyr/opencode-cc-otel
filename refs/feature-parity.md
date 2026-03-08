@@ -2,7 +2,7 @@
 
 ## Goal
 
-Assess how close an OpenCode plugin can get to Claude Code telemetry behavior using the public plugin API in `@opencode-ai/plugin@1.2.20`.
+Assess how close an OpenCode plugin can get to Claude Code telemetry payload compatibility using the public plugin API in `@opencode-ai/plugin@1.2.20`.
 
 Scope:
 
@@ -24,8 +24,10 @@ Reason:
 
 So:
 
-- **operator-facing telemetry parity**: good target
-- **Anthropic-internal telemetry parity**: not realistic without core/runtime changes
+- **Claude-compatible high-signal payloads**: good target
+- **Anthropic-internal full payload parity**: not realistic without core/runtime changes
+- repo target should still be **Claude payload compatibility first**, with explicit gap docs where parity is impossible
+- delivery should remain split across **1P**, **2P**, and **3P** channels, but **3P** is unsupported for now
 
 ## Parity matrix
 
@@ -40,8 +42,8 @@ So:
 | diff/LoC metrics | `lines_of_code.count` | medium-high | `session.diff`, message/session summaries expose file diffs/additions/deletions |
 | HTTP batching/retry | 1P batch retry/backoff | high | implemented with bounded retry/backoff |
 | disk queue + startup replay | failed batch durability | medium-high | implemented via durable queue wrapper + replay handshake |
-| Segment/Datadog side channels | side-channel forwarding | medium-high | fanout path exists; dedicated Datadog/Segment payloads still pending |
-| OTEL metrics/logs | 3P exporter paths | medium-high | implemented as normalized OTEL-like JSON envelope, not native SDK exporter |
+| Segment/Datadog side channels | side-channel forwarding | low | intentionally unsupported for now |
+| OTEL metrics/logs | 2P reporting path | medium-high | implemented as Claude-compatible OTEL-like JSON envelopes, not native SDK exporter |
 | OTEL traces | model/tool traces | low | no trace/span lifecycle hooks for Claude-equivalent tracing |
 | org/trust/identity enrichment | org opt-out, trust, identity enrichment | low | plugin API does not expose these values |
 | remote config / feature flags / killswitch | GrowthBook, firstParty, sampling config | low | not exposed; must build separate config system |
@@ -61,7 +63,7 @@ Using plugin hooks + SDK events, an OpenCode plugin can capture most high-signal
 - diff/file changes: `session.diff`, `file.edited`, message/session diff summaries
 - runtime errors: `session.error`, assistant message error fields
 
-This is enough to recreate a solid `tengu_*`-style event stream, even if event names and envelopes differ.
+This is enough to recreate a solid `tengu_*`-style event stream. Exact payload identity still depends on whether repo internals preserve Claude field names and envelope shape instead of translating into repo-local names.
 
 ### 2) Usage/cost telemetry
 
@@ -182,17 +184,18 @@ Current repo now covers most realistic first-pass parity wins:
 - buffered publish/flush
 - disk queue + startup replay
 - fanout sink
-- normalized OTEL JSON export
+- OTEL JSON export
 
 Current repo still does **not** cover the biggest remaining parity wins:
 
+- Claude raw event names/envelopes as canonical domain model
 - dedicated Datadog payload formatting
 - dedicated Segment payload formatting
 - stronger command success/failure semantics beyond coarse event correlation
 - session active-time derivation
 - native OTEL SDK/exporter integration if exact 3P stack parity is desired
 
-So current implementation is now **meaningfully closer to realistic plugin parity**. Rough estimate today: **60-70% of the realistic plugin ceiling**.
+So current implementation is now **meaningfully closer to realistic plugin parity**, but it is still architected around repo-defined normalized events instead of Claude raw payload compatibility. Rough estimate today: **60-70% of the realistic plugin ceiling**, lower for strict payload identity.
 
 ## Best realistic target
 
@@ -202,7 +205,8 @@ If the goal is "feature parity that matters operationally", target this set:
 2. token/cost/API metrics from assistant message events
 3. diff/LoC metrics from session diff events
 4. durable HTTP batching with replay
-5. optional OTEL + warehouse-friendly normalized schema
+5. optional OTEL + warehouse-friendly sink output layered after Claude-compatible capture
+6. independent enable/disable control for first-party, second-party, and third-party delivery
 
 That gets close to Claude's useful telemetry outcomes without pretending to match Anthropic-internal policy behavior.
 
@@ -210,10 +214,11 @@ That gets close to Claude's useful telemetry outcomes without pretending to matc
 
 Use this rule:
 
-- aim for **behavioral parity** on product telemetry
-- do **not** aim for exact parity on Anthropic-internal exporters, gates, or identity-rich payloads
+- aim for **Claude-compatible payloads** wherever OpenCode surface exposes enough data
+- document every field/decision path that stays approximate due to plugin API limits
+- do **not** claim exact parity on Anthropic-internal exporters, gates, or identity-rich payloads
 
 Short version:
 
-- **yes**: OpenCode plugin can become a serious telemetry implementation
+- **yes**: OpenCode plugin can become a serious Claude-compat telemetry implementation
 - **no**: it cannot exactly replicate Claude Code's full telemetry stack from plugin-only APIs

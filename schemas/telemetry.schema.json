@@ -9,31 +9,18 @@
       "type": "string",
       "description": "Optional hosted schema URL for editor validation."
     },
-    "http": {
+    "channels": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "default": {
-          "$ref": "#/$defs/httpTarget"
+        "firstParty": {
+          "$ref": "#/$defs/firstPartyChannel"
         },
-        "routes": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "match": {
-                "$ref": "#/$defs/routeMatch"
-              },
-              "endpoint": {
-                "$ref": "#/$defs/httpsUrl"
-              },
-              "token": {
-                "$ref": "#/$defs/tokenValue"
-              }
-            },
-            "required": ["match", "endpoint"]
-          }
+        "secondParty": {
+          "$ref": "#/$defs/secondPartyChannel"
+        },
+        "thirdParty": {
+          "$ref": "#/$defs/thirdPartyChannel"
         }
       }
     }
@@ -63,61 +50,123 @@
       },
       "required": ["endpoint"]
     },
-    "routeMatch": {
+    "httpConfig": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "provider": {
+        "default": {
+          "$ref": "#/$defs/httpTarget"
+        }
+      }
+    },
+    "otelConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "serviceName": {
           "type": "string",
           "minLength": 1,
-          "description": "Exact provider match."
+          "description": "Override service.name for secondParty OTEL sink. Supports env:NAME."
         },
-        "providerPrefix": {
+        "serviceVersion": {
           "type": "string",
           "minLength": 1,
-          "description": "Prefix match for dynamic provider namespaces."
+          "description": "Override service.version for secondParty OTEL sink. Supports env:NAME."
         },
-        "model": {
+        "logsChannelId": {
           "type": "string",
           "minLength": 1,
-          "description": "Exact model match."
+          "description": "Override OTEL logs channel id. Supports env:NAME."
         },
-        "modelRegex": {
+        "metricsChannelId": {
           "type": "string",
           "minLength": 1,
-          "description": "Regular expression tested against model attr."
+          "description": "Override OTEL metrics channel id. Supports env:NAME."
+        },
+        "resourceAttributes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra OTEL resource attrs for team or enterprise reporting."
+        }
+      }
+    },
+    "firstPartyChannel": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "sink": {
+          "const": "http",
+          "description": "Anthropic 1P event logging uses HTTP batch only."
+        },
+        "http": {
+          "$ref": "#/$defs/httpConfig"
         }
       },
-      "minProperties": 1
+      "required": ["sink"]
+    },
+    "secondPartyChannel": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "sink": {
+          "type": "string",
+          "enum": ["otel-json", "console"],
+          "description": "SecondParty team or enterprise reporting sink."
+        },
+        "otel": {
+          "$ref": "#/$defs/otelConfig"
+        }
+      },
+      "required": ["sink"]
+    },
+    "thirdPartyChannel": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "const": false,
+          "description": "thirdParty forwarding unsupported yet. Must stay false when present."
+        }
+      }
     }
   },
   "examples": [
     {
-      "http": {
-        "default": {
-          "endpoint": "https://telemetry.example.com/default",
-          "token": "env:OPENCODE_TELEMETRY_HTTP_TOKEN"
-        },
-        "routes": [
-          {
-            "match": {
-              "provider": "anthropic"
-            },
-            "endpoint": "https://telemetry.example.com/anthropic"
-          },
-          {
-            "match": {
-              "providerPrefix": "openrouter/"
-            },
-            "endpoint": "https://telemetry.example.com/openrouter"
-          },
-          {
-            "match": {
-              "modelRegex": "^gpt-5"
-            },
-            "endpoint": "https://telemetry.example.com/openai"
+      "channels": {
+        "firstParty": {
+          "enabled": true,
+          "sink": "http",
+          "http": {
+            "default": {
+              "endpoint": "https://api.anthropic.com/api/event_logging/batch",
+              "token": "env:OPENCODE_TELEMETRY_HTTP_TOKEN_1P"
+            }
           }
-        ]
+        },
+        "secondParty": {
+          "enabled": true,
+          "sink": "otel-json",
+          "otel": {
+            "serviceName": "claude-code",
+            "serviceVersion": "env:OPENCODE_TELEMETRY_SERVICE_VERSION",
+            "logsChannelId": "otel_3p_logs",
+            "metricsChannelId": "otel_3p_metrics",
+            "resourceAttributes": {
+              "user.subscription_type": "team"
+            }
+          }
+        },
+        "thirdParty": {
+          "enabled": false
+        }
       }
     }
   ]

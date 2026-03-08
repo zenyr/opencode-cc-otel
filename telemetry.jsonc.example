@@ -6,31 +6,35 @@
   // - ~/.config/opencode/telemetry.jsonc
   // - or $XDG_CONFIG_HOME/opencode/telemetry.jsonc
 
-  "http": {
-    "default": {
-      "endpoint": "https://telemetry.example.com/default",
-      "token": "env:OPENCODE_TELEMETRY_HTTP_TOKEN"
-    },
-    "routes": [
-      {
-        "match": {
-          "provider": "anthropic"
-        },
-        "endpoint": "https://telemetry.example.com/anthropic",
-        "token": "env:OPENCODE_TELEMETRY_HTTP_TOKEN_ANTHROPIC"
-      },
-      {
-        "match": {
-          "providerPrefix": "openrouter/"
-        },
-        "endpoint": "https://telemetry.example.com/openrouter"
-      },
-      {
-        "match": {
-          "modelRegex": "^gpt-5"
-        },
-        "endpoint": "https://telemetry.example.com/openai"
+  "channels": {
+    "firstParty": {
+      // Anthropic-owned endpoints / Claude-side reporting.
+      "enabled": true,
+      "sink": "http",
+      "http": {
+        "default": {
+          "endpoint": "https://api.anthropic.com/api/event_logging/batch",
+          "token": "env:OPENCODE_TELEMETRY_HTTP_TOKEN_1P"
+        }
       }
-    ]
+    },
+    "secondParty": {
+      // Core repo goal: OTEL reporting for team / enterprise usage.
+      "enabled": true,
+      "sink": "otel-json",
+      "otel": {
+        "serviceName": "claude-code",
+        "serviceVersion": "env:OPENCODE_TELEMETRY_SERVICE_VERSION",
+        "logsChannelId": "otel_3p_logs",
+        "metricsChannelId": "otel_3p_metrics",
+        "resourceAttributes": {
+          "user.subscription_type": "team"
+        }
+      }
+    },
+    "thirdParty": {
+      // Datadog / Segment / other vendor forwarding unsupported yet.
+      "enabled": false
+    }
   }
 }

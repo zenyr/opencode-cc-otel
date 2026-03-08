@@ -8,10 +8,11 @@ Full derivation notes stay local and are not tracked.
 
 Portable telemetry design needs to separate these logical channels:
 
-- OTEL-compatible metrics
-- OTEL-compatible logs/events
-- internal vendor metrics/events
-- side-channel forwarding such as analytics or log platforms
+- first-party reporting to Anthropic-owned / Claude official endpoints
+- second-party OTEL reporting for team and enterprise usage
+- third-party forwarding such as Datadog, analytics, or warehouse/log platforms, unsupported for now in this repo
+
+Each channel should be independently trackable and independently on/off.
 
 ## Portable event groups
 
@@ -65,8 +66,9 @@ Recommended normalized attrs:
 
 ## Safe parity guidance
 
-- build behaviorally equivalent events, not vendor-identical envelopes
-- prefer normalized attrs over copied internal payload structure
+- preserve Claude payload shape and field names where OpenCode exposes enough source data
+- use repo-local normalization only as an internal bridge, not as final external contract
+- mark missing Claude fields explicitly when plugin API cannot provide them
 - keep secrets and identity out of default public examples
 - route by provider/model when needed, but keep routing config user-controlled
 
@@ -80,3 +82,8 @@ This repo currently implements:
 - fanout sink
 - OTEL-style normalized JSON sink
 - XDG JSONC routing config
+
+Current repo still does not implement:
+
+- full Claude identity/trust/org enrichment
+- third-party Datadog or Segment forwarding
