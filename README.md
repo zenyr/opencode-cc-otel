@@ -39,6 +39,7 @@ OpenCode telemetry plugin monorepo.
 - example config: `telemetry.jsonc.example`
 - schema source: `schemas/telemetry.schema.json`
 - GitHub Pages schema URL: `https://zenyr.github.io/opencode-cc-otel/schemas/telemetry.schema.json`
+- schema auto-deploy: push to `main` with schema changes -> GitHub Pages workflow publishes same path
 - if repo or Pages path changes, update `$id` in `schemas/telemetry.schema.json` and `$schema` in `telemetry.jsonc.example`
 
 Supported HTTP routing config:
@@ -83,6 +84,12 @@ Supported HTTP routing config:
 ```bash
 bun test
 bun run build
+```
+
+After first schema deploy, verify:
+
+```bash
+curl -I https://zenyr.github.io/opencode-cc-otel/schemas/telemetry.schema.json
 ```
 
 ## Notable Reference
