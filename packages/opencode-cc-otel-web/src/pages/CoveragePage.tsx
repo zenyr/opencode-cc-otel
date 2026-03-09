@@ -1,4 +1,12 @@
-import { Code, List, Stack, Table } from "@mantine/core";
+import {
+  Card,
+  Code,
+  List,
+  SimpleGrid,
+  Stack,
+  Table,
+  Text,
+} from "@mantine/core";
 import { FeatureGrid } from "../components/FeatureGrid";
 import { renderInlineCode } from "../components/InlineCode";
 import { PageFrame } from "../components/PageFrame";
@@ -12,6 +20,8 @@ import {
 } from "../content";
 import type { PageMeta } from "../content";
 
+const parityGroups = ["High", "Medium-high", "Medium", "Low"] as const;
+
 const CoveragePage = ({ page }: { page: PageMeta }) => {
   return (
     <PageFrame page={page}>
@@ -24,8 +34,6 @@ const CoveragePage = ({ page }: { page: PageMeta }) => {
               <Table.Tr>
                 <Table.Th>Area</Table.Th>
                 <Table.Th>Status</Table.Th>
-                <Table.Th>Current</Table.Th>
-                <Table.Th>Notes</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -35,12 +43,35 @@ const CoveragePage = ({ page }: { page: PageMeta }) => {
                     <Code>{row.area}</Code>
                   </Table.Td>
                   <Table.Td>{row.status}</Table.Td>
-                  <Table.Td>{row.current}</Table.Td>
-                  <Table.Td>{renderInlineCode(row.notes)}</Table.Td>
                 </Table.Tr>
               ))}
             </Table.Tbody>
           </Table>
+          {parityGroups.map((status) => {
+            const rows = parityMatrix.filter((row) => row.status === status);
+            if (rows.length === 0) {
+              return null;
+            }
+
+            return (
+              <Stack gap="sm" key={status}>
+                <Text fw={700}>{status}</Text>
+                <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
+                  {rows.map((row) => (
+                    <Card key={row.area} padding="lg" radius="lg" withBorder>
+                      <Stack gap="xs">
+                        <Text fw={600}>{row.area}</Text>
+                        <Text c="dimmed" size="sm">
+                          {row.current}
+                        </Text>
+                        <Text size="sm">{renderInlineCode(row.notes)}</Text>
+                      </Stack>
+                    </Card>
+                  ))}
+                </SimpleGrid>
+              </Stack>
+            );
+          })}
           <List spacing="sm">
             {knownGaps.map((item) => (
               <List.Item key={item}>{renderInlineCode(item)}</List.Item>
