@@ -10,6 +10,7 @@ import {
   FanoutTelemetrySink,
   HttpTelemetrySink,
   InMemoryTelemetrySink,
+  ModelPricingCache,
   NdjsonFileWriter,
   SecondPartyOtelSink,
   createAnthropic1PBatchEnvelope,
@@ -328,4 +329,171 @@ test("NdjsonFileWriter appends one line per payload", async () => {
   await writer.write('{"b":2}');
 
   expect(await Bun.file(filePath).text()).toBe('{"a":1}\n{"b":2}\n');
+});
+
+// ---------------------------------------------------------------------------
+// ModelPricingCache
+// ---------------------------------------------------------------------------
+
+const FAKE_API_RESPONSE = {
+  anthropic: {
+    models: {
+      "claude-opus-4-6": {
+        cost: { input: 5, output: 25, cache_read: 0.5, cache_write: 6.25 },
+      },
+      "claude-sonnet-4-6": {
+        cost: { input: 3, output: 15, cache_read: 0.3, cache_write: 3.75 },
+      },
+    },
+  },
+  openai: {
+    models: {
+      "gpt-4o": {
+        cost: { input: 2.5, output: 10 },
+      },
+    },
+  },
+};
+
+const createFakeFetch = (body: unknown = FAKE_API_RESPONSE) => {
+  const state = { callCount: 0 };
+  const fn = async (_url: string) => {
+    state.callCount += 1;
+    return new Response(JSON.stringify(body), { status: 200 });
+  };
+  return { fn, state };
+};
+
+const uniqueDir = () =>
+  `/tmp/opencode-cc-pricing-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+test("ModelPricingCache lookups model cost from fetched data", async () => {
+  const cacheDir = uniqueDir();
+  const { fn, state } = createFakeFetch();
+  const cache = new ModelPricingCache({
+    cacheDir,
+    fetch: fn,
+    nowMs: () => 1000,
+  });
+
+  const cost = await cache.lookup("claude-opus-4-6");
+
+  expect(cost).toEqual({
+    input: 5,
+    output: 25,
+    cache_read: 0.5,
+    cache_write: 6.25,
+  });
+  expect(state.callCount).toBe(1);
+});
+
+test("ModelPricingCache returns undefined for unknown model", async () => {
+  const cacheDir = uniqueDir();
+  const { fn } = createFakeFetch();
+  const cache = new ModelPricingCache({
+    cacheDir,
+    fetch: fn,
+    nowMs: () => 1000,
+  });
+
+  expect(await cache.lookup("unknown-model")).toBeUndefined();
+});
+
+test("ModelPricingCache serves from memory within TTL", async () => {
+  const cacheDir = uniqueDir();
+  const { fn, state } = createFakeFetch();
+  let now = 1000;
+  const cache = new ModelPricingCache({
+    cacheDir,
+    fetch: fn,
+    ttlMs: 60_000,
+    nowMs: () => now,
+  });
+
+  await cache.lookup("claude-opus-4-6");
+  now = 30_000; // 29s later, within TTL
+  await cache.lookup("claude-sonnet-4-6");
+
+  expect(state.callCount).toBe(1);
+});
+
+test("ModelPricingCache re-fetches after TTL expires", async () => {
+  const cacheDir = uniqueDir();
+  const { fn, state } = createFakeFetch();
+  let now = 1000;
+  const cache = new ModelPricingCache({
+    cacheDir,
+    fetch: fn,
+    ttlMs: 60_000,
+    nowMs: () => now,
+  });
+
+  await cache.lookup("claude-opus-4-6");
+  now = 100_000; // well past TTL
+  await cache.lookup("claude-opus-4-6");
+
+  expect(state.callCount).toBe(2);
+});
+
+test("ModelPricingCache persists to disk and reads back", async () => {
+  const cacheDir = uniqueDir();
+  const { fn, state } = createFakeFetch();
+
+  // first instance writes to disk
+  const cache1 = new ModelPricingCache({
+    cacheDir,
+    fetch: fn,
+    ttlMs: 60_000,
+    nowMs: () => 1000,
+  });
+  await cache1.lookup("gpt-4o");
+  expect(state.callCount).toBe(1);
+
+  // second instance reads from disk, no fetch
+  const { fn: fn2, state: state2 } = createFakeFetch();
+  const cache2 = new ModelPricingCache({
+    cacheDir,
+    fetch: fn2,
+    ttlMs: 60_000,
+    nowMs: () => 30_000, // within TTL
+  });
+  const cost = await cache2.lookup("gpt-4o");
+
+  expect(cost).toEqual({ input: 2.5, output: 10 });
+  expect(state2.callCount).toBe(0);
+});
+
+test("ModelPricingCache falls back to stale cache on fetch failure", async () => {
+  const cacheDir = uniqueDir();
+  let now = 1000;
+
+  // seed cache
+  const { fn: seedFn } = createFakeFetch();
+  const cache1 = new ModelPricingCache({
+    cacheDir,
+    fetch: seedFn,
+    ttlMs: 60_000,
+    nowMs: () => now,
+  });
+  await cache1.lookup("claude-opus-4-6");
+
+  // expire TTL, make fetch fail
+  now = 200_000;
+  const failFetch = async (_url: string): Promise<Response> => {
+    throw new Error("network down");
+  };
+  const cache2 = new ModelPricingCache({
+    cacheDir,
+    fetch: failFetch,
+    ttlMs: 60_000,
+    nowMs: () => now,
+  });
+
+  const cost = await cache2.lookup("claude-opus-4-6");
+  expect(cost).toEqual({
+    input: 5,
+    output: 25,
+    cache_read: 0.5,
+    cache_write: 6.25,
+  });
 });

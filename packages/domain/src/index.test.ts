@@ -4,6 +4,7 @@ import {
   TELEMETRY_EVENT_NAMES,
   createTelemetryAttributes,
   createTelemetryRecord,
+  estimateCostUsd,
 } from "./index";
 
 test("TELEMETRY_EVENT_NAMES exposes Claude-compatible event constants", () => {
@@ -110,4 +111,32 @@ test("createTelemetryAttributes rejects non-primitive attr values", () => {
       custom: { nested: true } as unknown as string,
     });
   }).toThrow("Telemetry attribute invalid: custom");
+});
+
+test("estimateCostUsd computes from all token types", () => {
+  const cost = estimateCostUsd({
+    cost: { input: 5, output: 25, cache_read: 0.5, cache_write: 6.25 },
+    inputTokens: 1_000_000,
+    outputTokens: 1_000_000,
+    cacheReadTokens: 1_000_000,
+    cacheCreationTokens: 1_000_000,
+  });
+
+  // (1M/1M)*5 + (1M/1M)*25 + (1M/1M)*0.5 + (1M/1M)*6.25 = 36.75
+  expect(cost).toBeCloseTo(36.75, 6);
+});
+
+test("estimateCostUsd handles partial token input", () => {
+  const cost = estimateCostUsd({
+    cost: { input: 3, output: 15 },
+    inputTokens: 500_000,
+    outputTokens: 100_000,
+  });
+
+  // (0.5)*3 + (0.1)*15 = 1.5 + 1.5 = 3.0
+  expect(cost).toBeCloseTo(3.0, 6);
+});
+
+test("estimateCostUsd returns 0 when no tokens", () => {
+  expect(estimateCostUsd({ cost: { input: 5, output: 25 } })).toBe(0);
 });

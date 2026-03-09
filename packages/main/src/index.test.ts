@@ -2,7 +2,11 @@ import { expect, test } from "bun:test";
 
 import type { PluginInput } from "@opencode-ai/plugin";
 import { InMemoryTelemetrySink } from "@zenyr/telemetry-adapters";
-import { TELEMETRY_EVENT_NAMES } from "@zenyr/telemetry-domain";
+import {
+  type ModelCost,
+  type ModelPricingPort,
+  TELEMETRY_EVENT_NAMES,
+} from "@zenyr/telemetry-domain";
 import {
   createOpencodeHooks,
   createTelemetrySinkFromEnv,
@@ -30,12 +34,26 @@ type EventInput = Parameters<
 type PermissionInput = Parameters<
   NonNullable<ReturnType<typeof createOpencodeHooks>["permission.ask"]>
 >[0];
+type HookOptions = NonNullable<Parameters<typeof createOpencodeHooks>[1]>;
+
+const TEST_ENV = {
+  XDG_CACHE_HOME: "/tmp/opencode-cc-test-cache",
+  XDG_CONFIG_HOME: "/tmp/opencode-cc-test-config",
+  XDG_DATA_HOME: "/tmp/opencode-cc-test-data",
+};
 
 const buildPluginInput = (): PluginInput => {
   return {
     directory: "/tmp/project",
     worktree: "/tmp/project",
   } as PluginInput;
+};
+
+const createHooks = (options: HookOptions = {}) => {
+  return createOpencodeHooks(buildPluginInput(), {
+    env: TEST_ENV,
+    ...options,
+  });
 };
 
 const buildPermissionInput = (): PermissionInput => {
@@ -182,6 +200,28 @@ const createScriptedClock = (...values: number[]) => {
     },
   };
 };
+
+test("parseJsoncObject handles trailing commas", () => {
+  expect(
+    parseJsoncObject<{
+      providerFilter: { allow: string[] };
+    }>(`{
+      "providerFilter": {
+        "allow": ["anthropic"],
+      },
+    }`),
+  ).toEqual({
+    providerFilter: {
+      allow: ["anthropic"],
+    },
+  });
+});
+
+test("parseJsoncObject handles trailing commas in arrays", () => {
+  expect(
+    parseJsoncObject<{ items: number[] }>(`{ "items": [1, 2, 3,] }`),
+  ).toEqual({ items: [1, 2, 3] });
+});
 
 test("parseJsoncObject parses JSONC without stripping URLs", () => {
   expect(
@@ -423,7 +463,7 @@ test("createTelemetrySinkFromEnv writes 2P otel-json to ndjson file by default",
 
 test("hook startup awaits queued replay before recording", async () => {
   const sink = new ReplayableInMemorySink();
-  const hooks = createOpencodeHooks(buildPluginInput(), {
+  const hooks = createHooks({
     sink,
     clock: {
       nowMs: () => 1,
@@ -440,7 +480,7 @@ test("hook startup awaits queued replay before recording", async () => {
 
 test("chat.message emits 1P and 2P prompt events", async () => {
   const sink = new InMemoryTelemetrySink();
-  const hooks = createOpencodeHooks(buildPluginInput(), {
+  const hooks = createHooks({
     sink,
     clock: createScriptedClock(1, 2),
   });
@@ -481,7 +521,7 @@ test("chat.message emits 1P and 2P prompt events", async () => {
 
 test("permission.ask emits 2P tool decision event and metric", async () => {
   const sink = new InMemoryTelemetrySink();
-  const hooks = createOpencodeHooks(buildPluginInput(), {
+  const hooks = createHooks({
     sink,
     clock: createScriptedClock(1, 2),
   });
@@ -523,7 +563,7 @@ test("permission.ask emits 2P tool decision event and metric", async () => {
 
 test("tool hooks emit 1P and 2P tool telemetry", async () => {
   const sink = new InMemoryTelemetrySink();
-  const hooks = createOpencodeHooks(buildPluginInput(), {
+  const hooks = createHooks({
     sink,
     clock: createScriptedClock(1, 8, 9),
   });
@@ -589,7 +629,7 @@ test("tool hooks emit 1P and 2P tool telemetry", async () => {
 
 test("message.updated success emits 1P, 2P, cost, and token metrics", async () => {
   const sink = new InMemoryTelemetrySink();
-  const hooks = createOpencodeHooks(buildPluginInput(), {
+  const hooks = createHooks({
     sink,
     clock: createScriptedClock(1, 2, 3, 4, 5, 6, 7),
   });
@@ -705,7 +745,7 @@ test("message.updated success emits 1P, 2P, cost, and token metrics", async () =
 
 test("message.updated error emits 1P and 2P error events", async () => {
   const sink = new InMemoryTelemetrySink();
-  const hooks = createOpencodeHooks(buildPluginInput(), {
+  const hooks = createHooks({
     sink,
     clock: createScriptedClock(1, 2),
   });
@@ -746,7 +786,7 @@ test("message.updated error emits 1P and 2P error events", async () => {
 
 test("session.diff emits second-party lines-of-code metrics", async () => {
   const sink = new InMemoryTelemetrySink();
-  const hooks = createOpencodeHooks(buildPluginInput(), {
+  const hooks = createHooks({
     sink,
     clock: createScriptedClock(1, 2),
   });
@@ -801,7 +841,7 @@ test("session.diff emits second-party lines-of-code metrics", async () => {
 
 test("command lifecycle emits first-party command event and second-party metrics", async () => {
   const sink = new InMemoryTelemetrySink();
-  const hooks = createOpencodeHooks(buildPluginInput(), {
+  const hooks = createHooks({
     sink,
     clock: createScriptedClock(1, 5, 6, 7),
   });
@@ -865,4 +905,258 @@ test("command lifecycle emits first-party command event and second-party metrics
       description: undefined,
     },
   ]);
+});
+
+// ---------------------------------------------------------------------------
+// Cost estimation fallback
+// ---------------------------------------------------------------------------
+
+class FakePricing implements ModelPricingPort {
+  #table: Record<string, ModelCost>;
+  constructor(table: Record<string, ModelCost>) {
+    this.#table = table;
+  }
+  async lookup(modelId: string): Promise<ModelCost | undefined> {
+    return this.#table[modelId];
+  }
+}
+
+const buildZeroCostAssistantEvent = (): EventInput => {
+  return {
+    event: {
+      type: "message.updated",
+      properties: {
+        info: {
+          id: "assistant-cost-0",
+          sessionID: "session-1",
+          role: "assistant",
+          time: { created: 5, completed: 15 },
+          modelID: "claude-opus-4-6",
+          providerID: "anthropic",
+          cost: 0,
+          tokens: {
+            input: 100,
+            output: 200,
+            reasoning: 0,
+            cache: { read: 50, write: 300 },
+          },
+        },
+      },
+    },
+  } as EventInput;
+};
+
+test("message.updated with cost=0 estimates cost from pricing port", async () => {
+  const sink = new InMemoryTelemetrySink();
+  const pricing = new FakePricing({
+    "claude-opus-4-6": {
+      input: 5,
+      output: 25,
+      cache_read: 0.5,
+      cache_write: 6.25,
+    },
+  });
+  const hooks = createHooks({
+    sink,
+    clock: createScriptedClock(1, 2, 3, 4, 5, 6, 7),
+    pricing,
+  });
+
+  await hooks.event?.(buildZeroCostAssistantEvent());
+
+  const events = sink.drain();
+  // expected cost: (100/1M)*5 + (200/1M)*25 + (50/1M)*0.5 + (300/1M)*6.25
+  //              = 0.0005 + 0.005 + 0.000025 + 0.001875 = 0.0074
+  const costMetric = events.find(
+    (e) =>
+      e.kind === "metric" &&
+      e.name === TELEMETRY_EVENT_NAMES.secondPartyMetrics.costUsage,
+  );
+  expect(costMetric).toBeDefined();
+  if (costMetric?.kind === "metric") {
+    expect(costMetric.value).toBeCloseTo(0.0074, 4);
+  }
+
+  // 1P and 2P events should carry the estimated cost
+  const apiSuccess = events.find(
+    (e) =>
+      e.kind === "event" &&
+      e.name === TELEMETRY_EVENT_NAMES.firstParty.apiSuccess,
+  );
+  expect(apiSuccess?.attributes.costUSD).toBeCloseTo(0.0074, 4);
+
+  const apiRequest = events.find(
+    (e) =>
+      e.kind === "event" &&
+      e.name === TELEMETRY_EVENT_NAMES.secondParty.apiRequest,
+  );
+  expect(apiRequest?.attributes.cost_usd).toBeCloseTo(0.0074, 4);
+});
+
+// ---------------------------------------------------------------------------
+// Provider filter
+// ---------------------------------------------------------------------------
+
+test("providerFilter drops chat.message from non-allowed provider", async () => {
+  const sink = new InMemoryTelemetrySink();
+  const hooks = createHooks({
+    sink,
+    clock: createScriptedClock(1, 2),
+    providerFilter: { allow: ["anthropic"] },
+  });
+
+  await hooks["chat.message"]?.(
+    {
+      ...buildChatMessageInput(),
+      model: { providerID: "openai", modelID: "gpt-4o" },
+    },
+    buildChatMessageOutput(),
+  );
+
+  expect(sink.drain()).toHaveLength(0);
+});
+
+test("providerFilter allows chat.message from allowed provider", async () => {
+  const sink = new InMemoryTelemetrySink();
+  const hooks = createHooks({
+    sink,
+    clock: createScriptedClock(1, 2),
+    providerFilter: { allow: ["anthropic"] },
+  });
+
+  await hooks["chat.message"]?.(
+    buildChatMessageInput(),
+    buildChatMessageOutput(),
+  );
+
+  expect(sink.drain()).toHaveLength(2);
+});
+
+test("providerFilter is case-insensitive", async () => {
+  const sink = new InMemoryTelemetrySink();
+  const hooks = createHooks({
+    sink,
+    clock: createScriptedClock(1, 2),
+    providerFilter: { allow: ["Anthropic"] },
+  });
+
+  await hooks["chat.message"]?.(
+    buildChatMessageInput(),
+    buildChatMessageOutput(),
+  );
+
+  expect(sink.drain()).toHaveLength(2);
+});
+
+test("providerFilter drops message.updated from non-allowed provider", async () => {
+  const sink = new InMemoryTelemetrySink();
+  const hooks = createHooks({
+    sink,
+    clock: createScriptedClock(1, 2),
+    providerFilter: { allow: ["openai"] },
+  });
+
+  await hooks.event?.(buildAssistantMessageUpdatedEvent());
+
+  expect(sink.drain()).toHaveLength(0);
+});
+
+test("providerFilter suppresses tool events when active provider mismatches", async () => {
+  const sink = new InMemoryTelemetrySink();
+  const hooks = createHooks({
+    sink,
+    clock: createScriptedClock(1, 2, 3, 4),
+    providerFilter: { allow: ["anthropic"] },
+  });
+
+  // set active provider to openai via chat.message
+  await hooks["chat.message"]?.(
+    {
+      ...buildChatMessageInput(),
+      model: { providerID: "openai", modelID: "gpt-4o" },
+    },
+    buildChatMessageOutput(),
+  );
+
+  await hooks["tool.execute.before"]?.(
+    { tool: "edit", sessionID: "session-1", callID: "call-1" },
+    { args: {} },
+  );
+
+  await hooks["tool.execute.after"]?.(
+    { tool: "edit", sessionID: "session-1", callID: "call-1", args: {} },
+    { title: "Edit", output: "ok", metadata: {} },
+  );
+
+  // chat.message dropped + tool events dropped
+  expect(sink.drain()).toHaveLength(0);
+});
+
+test("providerFilter allows tool events when active provider matches", async () => {
+  const sink = new InMemoryTelemetrySink();
+  const hooks = createHooks({
+    sink,
+    clock: createScriptedClock(1, 2, 3, 4, 5),
+    providerFilter: { allow: ["anthropic"] },
+  });
+
+  // set active provider to anthropic
+  await hooks["chat.message"]?.(
+    buildChatMessageInput(),
+    buildChatMessageOutput(),
+  );
+
+  await hooks["tool.execute.before"]?.(
+    { tool: "edit", sessionID: "session-1", callID: "call-1" },
+    { args: {} },
+  );
+
+  await hooks["tool.execute.after"]?.(
+    { tool: "edit", sessionID: "session-1", callID: "call-1", args: {} },
+    { title: "Edit", output: "ok", metadata: {} },
+  );
+
+  const events = sink.drain();
+  // 2 from chat.message + 2 from tool.execute.after
+  expect(events).toHaveLength(4);
+});
+
+test("providerFilter suppresses permission.ask when active provider mismatches", async () => {
+  const sink = new InMemoryTelemetrySink();
+  const hooks = createHooks({
+    sink,
+    clock: createScriptedClock(1, 2, 3),
+    providerFilter: { allow: ["anthropic"] },
+  });
+
+  // set active provider to openai
+  await hooks["chat.message"]?.(
+    {
+      ...buildChatMessageInput(),
+      model: { providerID: "openai", modelID: "gpt-4o" },
+    },
+    buildChatMessageOutput(),
+  );
+
+  await hooks["permission.ask"]?.(buildPermissionInput(), { status: "allow" });
+
+  expect(sink.drain()).toHaveLength(0);
+});
+
+test("no providerFilter logs all providers (backward compat)", async () => {
+  const sink = new InMemoryTelemetrySink();
+  const hooks = createHooks({
+    sink,
+    clock: createScriptedClock(1, 2),
+  });
+
+  await hooks["chat.message"]?.(
+    {
+      ...buildChatMessageInput(),
+      model: { providerID: "openai", modelID: "gpt-4o" },
+    },
+    buildChatMessageOutput(),
+  );
+
+  expect(sink.drain()).toHaveLength(2);
 });

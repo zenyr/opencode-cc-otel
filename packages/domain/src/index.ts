@@ -133,6 +133,56 @@ export const createTelemetryAttributes = (
   return attributes;
 };
 
+// ---------------------------------------------------------------------------
+// Model pricing
+// ---------------------------------------------------------------------------
+
+export type ModelCost = {
+  input: number;
+  output: number;
+  cache_read?: number;
+  cache_write?: number;
+};
+
+export type EstimateCostInput = {
+  cost: ModelCost;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+};
+
+export interface ModelPricingPort {
+  /** Resolve cost table for a model. Returns undefined when unknown. */
+  lookup(modelId: string): Promise<ModelCost | undefined>;
+}
+
+const PER_MILLION = 1_000_000;
+
+export const estimateCostUsd = (input: EstimateCostInput): number => {
+  const { cost } = input;
+  let total = 0;
+
+  if (input.inputTokens) {
+    total += (input.inputTokens / PER_MILLION) * cost.input;
+  }
+  if (input.outputTokens) {
+    total += (input.outputTokens / PER_MILLION) * cost.output;
+  }
+  if (input.cacheReadTokens && cost.cache_read !== undefined) {
+    total += (input.cacheReadTokens / PER_MILLION) * cost.cache_read;
+  }
+  if (input.cacheCreationTokens && cost.cache_write !== undefined) {
+    total += (input.cacheCreationTokens / PER_MILLION) * cost.cache_write;
+  }
+
+  return total;
+};
+
+// ---------------------------------------------------------------------------
+// Telemetry record factory
+// ---------------------------------------------------------------------------
+
 export const createTelemetryRecord = (
   input: TelemetryRecordInput,
 ): TelemetryRecord => {

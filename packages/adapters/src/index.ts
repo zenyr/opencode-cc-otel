@@ -1,7 +1,10 @@
 import { appendFile, mkdir, readdir, rm } from "node:fs/promises";
-import { dirname } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import type { TelemetrySinkPort } from "@zenyr/telemetry-application";
 import type {
+  ModelCost,
+  ModelPricingPort,
   TelemetryMetricRecord,
   TelemetryRecord,
 } from "@zenyr/telemetry-domain";
@@ -566,3 +569,162 @@ export const resolveLanguageFromPath = (
   const extension = filePath.slice(dotAt);
   return FILE_LANGUAGE_MAP.get(extension);
 };
+
+// ---------------------------------------------------------------------------
+// Model pricing cache (models.dev adapter)
+// ---------------------------------------------------------------------------
+
+const MODELS_DEV_API_URL = "https://models.dev/api.json";
+const DEFAULT_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 1 day
+const DEFAULT_CACHE_DIR_SEGMENTS = ["opencode", "telemetry"];
+const DEFAULT_CACHE_FILE_NAME = "models-pricing.json";
+
+type ModelsDevProvider = {
+  models: Record<string, { cost?: ModelCost }>;
+};
+
+type ModelsDevPayload = Record<string, ModelsDevProvider>;
+
+type CachedPricingData = {
+  fetchedAtMs: number;
+  models: Record<string, ModelCost>;
+};
+
+export type ModelPricingCacheOptions = {
+  /** Override cache dir (default: $XDG_CACHE_HOME/opencode/telemetry) */
+  cacheDir?: string;
+  /** TTL in ms (default: 86400000 = 1 day) */
+  ttlMs?: number;
+  /** Override env for XDG_CACHE_HOME resolution */
+  env?: Record<string, string | undefined>;
+  /** Override fetch impl */
+  fetch?: (url: string) => Promise<Response>;
+  /** Override clock */
+  nowMs?: () => number;
+};
+
+const resolveXdgCacheDir = (
+  env?: Record<string, string | undefined>,
+): string => {
+  const xdg = env?.XDG_CACHE_HOME ?? process.env.XDG_CACHE_HOME;
+  return xdg ?? join(homedir(), ".cache");
+};
+
+const flattenModelsDevPayload = (
+  payload: ModelsDevPayload,
+): Record<string, ModelCost> => {
+  const result: Record<string, ModelCost> = {};
+
+  for (const provider of Object.values(payload)) {
+    if (!provider.models || typeof provider.models !== "object") {
+      continue;
+    }
+
+    for (const [modelId, model] of Object.entries(provider.models)) {
+      if (!model.cost || typeof model.cost.input !== "number") {
+        continue;
+      }
+
+      result[modelId] = model.cost;
+    }
+  }
+
+  return result;
+};
+
+export class ModelPricingCache implements ModelPricingPort {
+  #cacheFilePath: string;
+  #ttlMs: number;
+  #fetchImpl: (url: string) => Promise<Response>;
+  #nowMs: () => number;
+  #data: CachedPricingData | undefined;
+  #loading: Promise<void> | undefined;
+
+  constructor(options: ModelPricingCacheOptions = {}) {
+    const cacheDir =
+      options.cacheDir ??
+      join(resolveXdgCacheDir(options.env), ...DEFAULT_CACHE_DIR_SEGMENTS);
+    this.#cacheFilePath = join(cacheDir, DEFAULT_CACHE_FILE_NAME);
+    this.#ttlMs = options.ttlMs ?? DEFAULT_CACHE_TTL_MS;
+    this.#fetchImpl = options.fetch ?? ((url) => fetch(url));
+    this.#nowMs = options.nowMs ?? (() => Date.now());
+  }
+
+  async lookup(modelId: string): Promise<ModelCost | undefined> {
+    await this.#ensureLoaded();
+    return this.#data?.models[modelId];
+  }
+
+  async #ensureLoaded(): Promise<void> {
+    if (this.#data && this.#nowMs() - this.#data.fetchedAtMs < this.#ttlMs) {
+      return;
+    }
+
+    if (this.#loading) {
+      await this.#loading;
+      return;
+    }
+
+    this.#loading = this.#load();
+
+    try {
+      await this.#loading;
+    } finally {
+      this.#loading = undefined;
+    }
+  }
+
+  async #load(): Promise<void> {
+    // try disk cache first
+    const cached = await this.#readDiskCache();
+    if (cached && this.#nowMs() - cached.fetchedAtMs < this.#ttlMs) {
+      this.#data = cached;
+      return;
+    }
+
+    // fetch fresh
+    try {
+      const response = await this.#fetchImpl(MODELS_DEV_API_URL);
+      if (!response.ok) {
+        // fall back to stale cache if available
+        if (cached) {
+          this.#data = cached;
+        }
+        return;
+      }
+
+      const payload = (await response.json()) as ModelsDevPayload;
+      const models = flattenModelsDevPayload(payload);
+      const now = this.#nowMs();
+      this.#data = { fetchedAtMs: now, models };
+      await this.#writeDiskCache(this.#data);
+    } catch {
+      // network failure — use stale cache
+      if (cached) {
+        this.#data = cached;
+      }
+    }
+  }
+
+  async #readDiskCache(): Promise<CachedPricingData | undefined> {
+    try {
+      const file = Bun.file(this.#cacheFilePath);
+      const exists = await file.exists();
+      if (!exists) {
+        return undefined;
+      }
+      return (await file.json()) as CachedPricingData;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async #writeDiskCache(data: CachedPricingData): Promise<void> {
+    try {
+      await mkdir(dirname(this.#cacheFilePath), { recursive: true });
+      await Bun.write(this.#cacheFilePath, JSON.stringify(data));
+    } catch {
+      // non-critical — cache write failure is silent
+    }
+  }
+}

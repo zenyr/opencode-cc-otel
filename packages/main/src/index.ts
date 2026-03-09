@@ -6,6 +6,7 @@ import {
   Anthropic1PBatchSink,
   DurableTelemetrySink,
   FanoutTelemetrySink,
+  ModelPricingCache,
   NdjsonFileWriter,
   SecondPartyOtelSink,
   resolveLanguageFromPath,
@@ -18,7 +19,11 @@ import {
   TelemetryService,
   type TelemetrySinkPort,
 } from "@zenyr/telemetry-application";
-import { TELEMETRY_EVENT_NAMES } from "@zenyr/telemetry-domain";
+import {
+  type ModelPricingPort,
+  TELEMETRY_EVENT_NAMES,
+  estimateCostUsd,
+} from "@zenyr/telemetry-domain";
 
 type EnvProvider = Record<string, string | undefined>;
 
@@ -63,18 +68,25 @@ type ThirdPartyChannelConfig = {
   enabled?: boolean;
 };
 
+type ProviderFilterConfig = {
+  allow: string[];
+};
+
 type TelemetryConfigFile = {
   channels?: {
     firstParty?: FirstPartyChannelConfig;
     secondParty?: SecondPartyChannelConfig;
     thirdParty?: ThirdPartyChannelConfig;
   };
+  providerFilter?: ProviderFilterConfig;
 };
 
 type RuntimeOptions = {
   sink?: TelemetrySinkPort;
   clock?: ClockPort;
   env?: EnvProvider;
+  pricing?: ModelPricingPort;
+  providerFilter?: ProviderFilterConfig;
 };
 
 type ToolCallState = {
@@ -276,8 +288,12 @@ const stripJsonComments = (input: string): string => {
   return output;
 };
 
+const stripTrailingCommas = (input: string): string => {
+  return input.replace(/,\s*([}\]])/g, "$1");
+};
+
 export const parseJsoncObject = <T>(input: string): T => {
-  return JSON.parse(stripJsonComments(input)) as T;
+  return JSON.parse(stripTrailingCommas(stripJsonComments(input))) as T;
 };
 
 const resolveConfigValue = (
@@ -316,6 +332,40 @@ const secondPartyFilePath = (
   );
 };
 
+const resolveProviderFilter = (
+  env: EnvProvider,
+  override?: ProviderFilterConfig,
+): Set<string> | undefined => {
+  if (override) {
+    return override.allow.length > 0
+      ? new Set(override.allow.map((p) => p.toLowerCase()))
+      : undefined;
+  }
+
+  const config = loadTelemetryConfig(env);
+  const filter = config?.providerFilter;
+  if (!filter || filter.allow.length === 0) {
+    return undefined;
+  }
+
+  return new Set(filter.allow.map((p) => p.toLowerCase()));
+};
+
+const isProviderAllowed = (
+  allowSet: Set<string> | undefined,
+  provider: string | undefined,
+): boolean => {
+  // no filter configured → allow all
+  if (!allowSet) {
+    return true;
+  }
+  // filter configured but provider unknown → drop
+  if (!provider) {
+    return false;
+  }
+  return allowSet.has(provider.toLowerCase());
+};
+
 const buildSecondPartyWriter = (
   env: EnvProvider,
   channel?: SecondPartyChannelConfig,
@@ -345,9 +395,13 @@ export const loadTelemetryConfig = (
     return undefined;
   }
 
-  return parseJsoncObject<TelemetryConfigFile>(
-    readFileSync(configPath, "utf8"),
-  );
+  try {
+    return parseJsoncObject<TelemetryConfigFile>(
+      readFileSync(configPath, "utf8"),
+    );
+  } catch {
+    return undefined;
+  }
 };
 
 const withDurability = (
@@ -509,6 +563,7 @@ const recordApiSuccess = async (
   service: TelemetryService,
   seenCompletions: CompletionState,
   message: unknown,
+  pricing?: ModelPricingPort,
 ): Promise<void> => {
   if (!isAssistantMessage(message)) {
     return;
@@ -548,7 +603,21 @@ const recordApiSuccess = async (
   const cacheCreationTokens = readNumber(
     getProp(getProp(getProp(message, "tokens"), "cache"), "write"),
   );
-  const costUsd = readNumber(getProp(message, "cost"));
+  let costUsd = readNumber(getProp(message, "cost"));
+
+  // upstream may report 0 — estimate from token counts when pricing available
+  if ((costUsd === undefined || costUsd === 0) && pricing && model) {
+    const modelCost = await pricing.lookup(model);
+    if (modelCost) {
+      costUsd = estimateCostUsd({
+        cost: modelCost,
+        inputTokens,
+        outputTokens,
+        cacheReadTokens,
+        cacheCreationTokens,
+      });
+    }
+  }
 
   if (error) {
     await service.record({
@@ -707,6 +776,7 @@ export const createOpencodeHooks = (
 ): Hooks => {
   const env = options.env ?? DEFAULT_ENV;
   const clock = options.clock ?? new SystemClock();
+  const pricing = options.pricing ?? new ModelPricingCache({ env });
   const sink = (options.sink ??
     createTelemetrySinkFromEnv(env)) as ReplayableSink;
   const service = new TelemetryService({
@@ -718,6 +788,9 @@ export const createOpencodeHooks = (
   const toolCalls = new Map<string, ToolCallState>();
   const commandCalls = new Map<string, CommandCallState>();
   const seenCompletions: CompletionState = new Map();
+  const providerAllowSet = resolveProviderFilter(env, options.providerFilter);
+  // track last known provider per session for provider-agnostic hooks
+  const activeProvider = new Map<string, string>();
 
   const record = async (
     telemetryInput: Parameters<TelemetryService["record"]>[0],
@@ -728,6 +801,17 @@ export const createOpencodeHooks = (
 
   return {
     "chat.message": async (messageInput, messageOutput) => {
+      const provider = messageInput.model?.providerID;
+
+      // track active provider per session (before filter check)
+      if (provider && messageInput.sessionID) {
+        activeProvider.set(messageInput.sessionID, provider);
+      }
+
+      if (!isProviderAllowed(providerAllowSet, provider)) {
+        return;
+      }
+
       const prompt = partText(messageOutput.parts);
       const promptLength = prompt.length;
 
@@ -738,7 +822,7 @@ export const createOpencodeHooks = (
         attributes: {
           promptLength,
           model: messageInput.model?.modelID,
-          provider: messageInput.model?.providerID,
+          provider,
         },
       });
 
@@ -750,7 +834,7 @@ export const createOpencodeHooks = (
           "prompt.id": messageInput.messageID,
           prompt_length: promptLength,
           model: messageInput.model?.modelID,
-          provider: messageInput.model?.providerID,
+          provider,
         },
       });
     },
@@ -771,17 +855,29 @@ export const createOpencodeHooks = (
 
     event: async ({ event }) => {
       if (eventType(event) === "message.updated") {
+        const message = getProp(eventProperties(event), "info");
+        const msgProvider = readString(getProp(message, "providerID"));
+        if (!isProviderAllowed(providerAllowSet, msgProvider)) {
+          return;
+        }
         await ready;
-        await recordApiSuccess(
-          service,
-          seenCompletions,
-          getProp(eventProperties(event), "info"),
-        );
+        await recordApiSuccess(service, seenCompletions, message, pricing);
       }
 
       if (eventType(event) === "session.diff") {
         const properties = eventProperties(event);
         const sessionId = readString(getProp(properties, "sessionID"));
+
+        if (
+          providerAllowSet &&
+          !isProviderAllowed(
+            providerAllowSet,
+            sessionId ? activeProvider.get(sessionId) : undefined,
+          )
+        ) {
+          return;
+        }
+
         const totals = diffTotals(getProp(properties, "diff"));
 
         if (totals.additions > 0) {
@@ -821,6 +917,17 @@ export const createOpencodeHooks = (
         const key = commandStateKey(sessionId, command, argumentsText);
         const state = commandCalls.get(key);
         commandCalls.delete(key);
+
+        if (
+          providerAllowSet &&
+          !isProviderAllowed(
+            providerAllowSet,
+            sessionId ? activeProvider.get(sessionId) : undefined,
+          )
+        ) {
+          return;
+        }
+
         const durationMs = state
           ? Math.max(0, clock.nowMs() - state.startedAtMs)
           : undefined;
@@ -845,6 +952,17 @@ export const createOpencodeHooks = (
     },
 
     "permission.ask": async (permission, output) => {
+      const permSessionId = readString(getProp(permission, "sessionID"));
+      if (
+        providerAllowSet &&
+        !isProviderAllowed(
+          providerAllowSet,
+          permSessionId ? activeProvider.get(permSessionId) : undefined,
+        )
+      ) {
+        return;
+      }
+
       const toolName = permissionName(permission);
       const decision = output.status === "allow" ? "accept" : "reject";
       const lowerToolName = toolName.toLowerCase();
@@ -903,6 +1021,16 @@ export const createOpencodeHooks = (
     "tool.execute.after": async (toolInput, toolOutput) => {
       const state = toolCalls.get(toolInput.callID);
       toolCalls.delete(toolInput.callID);
+
+      if (
+        providerAllowSet &&
+        !isProviderAllowed(
+          providerAllowSet,
+          activeProvider.get(toolInput.sessionID),
+        )
+      ) {
+        return;
+      }
 
       const durationMs = state
         ? Math.max(0, clock.nowMs() - state.startedAtMs)

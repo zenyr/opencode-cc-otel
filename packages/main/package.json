@@ -15,7 +15,7 @@
     "@opencode-ai/plugin": "^1.2.20"
   },
   "scripts": {
-    "build": "bun build ./src/index.ts --outdir ./dist --target bun",
+    "build": "bun build ./src/entry.ts --outdir ./dist --target bun",
     "test": "bun test"
   }
 }

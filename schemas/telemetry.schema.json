@@ -23,6 +23,9 @@
           "$ref": "#/$defs/thirdPartyChannel"
         }
       }
+    },
+    "providerFilter": {
+      "$ref": "#/$defs/providerFilter"
     }
   },
   "$defs": {
@@ -156,10 +159,30 @@
           "description": "thirdParty forwarding unsupported yet. Must stay false when present."
         }
       }
+    },
+    "providerFilter": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Filter telemetry by LLM provider. When set, only matching providers are logged.",
+      "properties": {
+        "allow": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "description": "Provider IDs to log (e.g. [\"anthropic\"]). Events from unlisted providers are dropped. Provider-agnostic events (tool, permission, command, diff) are only emitted while the active provider matches."
+        }
+      },
+      "required": ["allow"]
     }
   },
   "examples": [
     {
+      "providerFilter": {
+        "allow": ["anthropic"]
+      },
       "channels": {
         "firstParty": {
           "enabled": false,

@@ -6,6 +6,12 @@
   // - ~/.config/opencode/telemetry.jsonc
   // - or $XDG_CONFIG_HOME/opencode/telemetry.jsonc
 
+  // Only log telemetry for Anthropic provider calls.
+  // Remove this block to log all providers.
+  "providerFilter": {
+    "allow": ["anthropic"]
+  },
+
   "channels": {
     "firstParty": {
       // Anthropic-owned endpoints / Claude-side reporting. Opt-in only.
