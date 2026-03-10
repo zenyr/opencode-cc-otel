@@ -123,6 +123,7 @@ type CommandCallState = {
 };
 
 type CompletionState = Map<string, number>;
+type SessionDiffState = Map<string, { additions: number; deletions: number }>;
 type ReplayableSink = TelemetrySinkPort & {
   flushQueued?: () => Promise<void>;
 };
@@ -237,6 +238,43 @@ const diffTotals = (
     },
     { additions: 0, deletions: 0, files: 0 },
   );
+};
+
+const diffSnapshotByFile = (diff: unknown): SessionDiffState => {
+  const snapshot: SessionDiffState = new Map();
+  if (!Array.isArray(diff)) {
+    return snapshot;
+  }
+
+  for (const item of diff) {
+    const filePath = readString(getProp(item, "file"));
+    if (!filePath) {
+      continue;
+    }
+
+    snapshot.set(filePath, {
+      additions: readNumber(getProp(item, "additions")) ?? 0,
+      deletions: readNumber(getProp(item, "deletions")) ?? 0,
+    });
+  }
+
+  return snapshot;
+};
+
+const diffDeltaTotals = (
+  previous: SessionDiffState | undefined,
+  next: SessionDiffState,
+): { additions: number; deletions: number } => {
+  let additions = 0;
+  let deletions = 0;
+
+  for (const [filePath, totals] of next) {
+    const prior = previous?.get(filePath);
+    additions += Math.max(0, totals.additions - (prior?.additions ?? 0));
+    deletions += Math.max(0, totals.deletions - (prior?.deletions ?? 0));
+  }
+
+  return { additions, deletions };
 };
 
 const readInt = (value: string | undefined, fallback: number): number => {
@@ -382,6 +420,32 @@ const mergeStringRecords = (
   return {
     ...(base ?? {}),
     ...(override ?? {}),
+  };
+};
+
+const normalizeClaudeTelemetryServiceName = (
+  value: string | undefined,
+): string | undefined => {
+  return value === "claude" ? "claude-code" : value;
+};
+
+const normalizeClaudeTelemetryResourceAttributes = (
+  value: Record<string, string> | undefined,
+): Record<string, string> | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  const serviceName = normalizeClaudeTelemetryServiceName(
+    value["service.name"],
+  );
+  if (!serviceName || serviceName === value["service.name"]) {
+    return value;
+  }
+
+  return {
+    ...value,
+    "service.name": serviceName,
   };
 };
 
@@ -698,12 +762,16 @@ const collectClaudeTelemetryHints = (
     (currentPath === "resourceattributes" ||
       currentPath === "otelresourceattributes")
   ) {
+    const normalizedResourceAttributes =
+      normalizeClaudeTelemetryResourceAttributes(resourceAttributes);
     hints.resourceAttributes = mergeStringRecords(
       hints.resourceAttributes,
-      resourceAttributes,
+      normalizedResourceAttributes,
     );
-    hints.serviceName ??= resourceAttributes["service.name"];
-    hints.serviceVersion ??= resourceAttributes["service.version"];
+    hints.serviceName ??= normalizeClaudeTelemetryServiceName(
+      normalizedResourceAttributes?.["service.name"],
+    );
+    hints.serviceVersion ??= normalizedResourceAttributes?.["service.version"];
   }
 
   if (Array.isArray(value)) {
@@ -738,12 +806,16 @@ const collectClaudeTelemetryHints = (
     if (key === "resourceattributes" || key === "otelresourceattributes") {
       const parsed = parseResourceAttributes(rawValue);
       if (parsed) {
+        const normalizedParsed =
+          normalizeClaudeTelemetryResourceAttributes(parsed);
         hints.resourceAttributes = mergeStringRecords(
           hints.resourceAttributes,
-          parsed,
+          normalizedParsed,
         );
-        hints.serviceName ??= parsed["service.name"];
-        hints.serviceVersion ??= parsed["service.version"];
+        hints.serviceName ??= normalizeClaudeTelemetryServiceName(
+          normalizedParsed?.["service.name"],
+        );
+        hints.serviceVersion ??= normalizedParsed?.["service.version"];
       }
     }
 
@@ -799,13 +871,15 @@ export const extractClaudeTelemetryConfig = (
 
   const otel: TelemetryOtelConfig = {};
   if (hints.serviceName) {
-    otel.serviceName = hints.serviceName;
+    otel.serviceName = normalizeClaudeTelemetryServiceName(hints.serviceName);
   }
   if (hints.serviceVersion) {
     otel.serviceVersion = hints.serviceVersion;
   }
   if (hints.resourceAttributes) {
-    otel.resourceAttributes = hints.resourceAttributes;
+    otel.resourceAttributes = normalizeClaudeTelemetryResourceAttributes(
+      hints.resourceAttributes,
+    );
   }
   if (hints.includeSessionId !== undefined) {
     otel.includeSessionId = hints.includeSessionId;
@@ -1455,6 +1529,7 @@ const recordApiSuccess = async (
       channel: "secondParty",
       name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.costUsage,
       sessionId,
+      description: "Cost of the Claude Code session",
       unit: "USD",
       value: costUsd,
       attributes: {
@@ -1480,6 +1555,7 @@ const recordApiSuccess = async (
       channel: "secondParty",
       name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.tokenUsage,
       sessionId,
+      description: "Number of tokens used",
       unit: "tokens",
       value,
       attributes: {
@@ -1518,6 +1594,10 @@ const recordCommandMetrics = async (
       channel: "secondParty",
       name: operation,
       sessionId,
+      description:
+        operation === TELEMETRY_EVENT_NAMES.secondPartyMetrics.commitCount
+          ? "Count of git commits created from Claude Code"
+          : "Count of pull requests created from Claude Code",
       unit: "{count}",
       value: 1,
       attributes: {},
@@ -1530,6 +1610,7 @@ const recordCommandMetrics = async (
       channel: "secondParty",
       name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.activeTimeTotal,
       sessionId,
+      description: "Total active time in seconds",
       unit: "s",
       value: Math.max(0, durationMs / 1000),
       attributes: {
@@ -1563,6 +1644,7 @@ export const createOpencodeHooks = (
   const toolCalls = new Map<string, ToolCallState>();
   const commandCalls = new Map<string, CommandCallState>();
   const seenCompletions: CompletionState = new Map();
+  const sessionDiffs = new Map<string, SessionDiffState>();
   const providerAllowSet = resolveProviderFilter(env, options.providerFilter);
   // track last known provider per session for provider-agnostic hooks
   const activeProvider = new Map<string, string>();
@@ -1619,12 +1701,10 @@ export const createOpencodeHooks = (
         kind: "metric",
         channel: "secondParty",
         name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.sessionCount,
+        description: "Count of CLI sessions started",
         unit: "{count}",
         value: 1,
-        attributes: {
-          directory: input.directory,
-          worktree: input.worktree,
-        },
+        attributes: {},
       });
     },
 
@@ -1653,7 +1733,16 @@ export const createOpencodeHooks = (
           return;
         }
 
-        const totals = diffTotals(getProp(properties, "diff"));
+        const diff = getProp(properties, "diff");
+        const nextSnapshot = diffSnapshotByFile(diff);
+        const totals = diffDeltaTotals(
+          sessionId ? sessionDiffs.get(sessionId) : undefined,
+          nextSnapshot,
+        );
+
+        if (sessionId) {
+          sessionDiffs.set(sessionId, nextSnapshot);
+        }
 
         if (totals.additions > 0) {
           await record({
@@ -1661,6 +1750,8 @@ export const createOpencodeHooks = (
             channel: "secondParty",
             name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.linesOfCodeCount,
             sessionId,
+            description:
+              "Count of lines of code modified, with the 'type' attribute indicating whether lines were added or removed",
             unit: "{count}",
             value: totals.additions,
             attributes: {
@@ -1675,6 +1766,8 @@ export const createOpencodeHooks = (
             channel: "secondParty",
             name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.linesOfCodeCount,
             sessionId,
+            description:
+              "Count of lines of code modified, with the 'type' attribute indicating whether lines were added or removed",
             unit: "{count}",
             value: totals.deletions,
             attributes: {
@@ -1763,6 +1856,8 @@ export const createOpencodeHooks = (
           channel: "secondParty",
           name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.codeEditToolDecision,
           sessionId: readString(getProp(permission, "sessionID")),
+          description:
+            "Count of code editing tool permission decisions (accept/reject) for Edit, Write, and NotebookEdit tools",
           unit: "{count}",
           value: 1,
           attributes: {

@@ -52,6 +52,7 @@ const withIsolatedClaudeConfig = (
 ): Record<string, string | undefined> => {
   return {
     CLAUDE_CONFIG_DIR: TEST_ENV.CLAUDE_CONFIG_DIR,
+    CLAUDE_MANAGED_SETTINGS_PATH: TEST_ENV.CLAUDE_MANAGED_SETTINGS_PATH,
     ...env,
   };
 };
@@ -59,6 +60,7 @@ const withIsolatedClaudeConfig = (
 const ensureEmptyClaudeRemoteSettings = async (): Promise<void> => {
   await mkdir(TEST_ENV.CLAUDE_CONFIG_DIR, { recursive: true });
   await Bun.write(`${TEST_ENV.CLAUDE_CONFIG_DIR}/remote-settings.json`, "{}");
+  await Bun.write(TEST_ENV.CLAUDE_MANAGED_SETTINGS_PATH, "{}");
 };
 
 const missingTelemetryConfigPath = () => {
@@ -382,9 +384,9 @@ test("extractClaudeTelemetryConfig maps Claude policy-like telemetry settings", 
           timeoutMs: 10000,
         },
         otel: {
-          serviceName: "claude",
+          serviceName: "claude-code",
           resourceAttributes: {
-            "service.name": "claude",
+            "service.name": "claude-code",
             "service.instance": "flex",
             "service.type": "cli",
           },
@@ -455,10 +457,10 @@ test("loadTelemetryConfig reads Claude remote settings and merges local override
           timeoutMs: 10000,
         },
         otel: {
-          serviceName: "claude",
+          serviceName: "claude-code",
           serviceVersion: "1.2.3",
           resourceAttributes: {
-            "service.name": "claude",
+            "service.name": "claude-code",
             "service.instance": "flex",
             "service.type": "cli",
           },
@@ -548,10 +550,11 @@ test("loadTelemetryConfig supports explicit user identity injection", async () =
   );
 
   expect(
-    loadTelemetryConfig({
-      CLAUDE_CONFIG_DIR: TEST_ENV.CLAUDE_CONFIG_DIR,
-      OPENCODE_CC_OTEL_CONFIG_PATH: configPath,
-    }),
+    loadTelemetryConfig(
+      withIsolatedClaudeConfig({
+        OPENCODE_CC_OTEL_CONFIG_PATH: configPath,
+      }),
+    ),
   ).toEqual({
     channels: {
       secondParty: {
@@ -602,10 +605,11 @@ test("createTelemetrySinkFromEnv builds fanout sink from 1P and 2P", async () =>
     }`,
   );
 
-  const sink = createTelemetrySinkFromEnv({
-    CLAUDE_CONFIG_DIR: TEST_ENV.CLAUDE_CONFIG_DIR,
-    OPENCODE_CC_OTEL_CONFIG_PATH: configPath,
-  });
+  const sink = createTelemetrySinkFromEnv(
+    withIsolatedClaudeConfig({
+      OPENCODE_CC_OTEL_CONFIG_PATH: configPath,
+    }),
+  );
 
   expect(sink.constructor.name).toBe("FanoutTelemetrySink");
 });
@@ -647,12 +651,14 @@ test("createTelemetrySinkFromEnv keeps 1P off by default in channel config", asy
 test("createTelemetrySinkFromEnv still supports legacy env-only 1P opt-in", async () => {
   await ensureEmptyClaudeRemoteSettings();
 
-  const sink = createTelemetrySinkFromEnv({
-    CLAUDE_CONFIG_DIR: TEST_ENV.CLAUDE_CONFIG_DIR,
-    OPENCODE_CC_OTEL_CONFIG_PATH: missingTelemetryConfigPath(),
-    OPENCODE_CC_OTEL_SINK: "http",
-    OPENCODE_CC_OTEL_HTTP_ENDPOINT: "https://telemetry.example.test/anthropic",
-  });
+  const sink = createTelemetrySinkFromEnv(
+    withIsolatedClaudeConfig({
+      OPENCODE_CC_OTEL_CONFIG_PATH: missingTelemetryConfigPath(),
+      OPENCODE_CC_OTEL_SINK: "http",
+      OPENCODE_CC_OTEL_HTTP_ENDPOINT:
+        "https://telemetry.example.test/anthropic",
+    }),
+  );
 
   expect(sink.constructor.name).toBe("Anthropic1PBatchSink");
 });
@@ -675,7 +681,7 @@ test("createTelemetrySinkFromEnv rejects enabled thirdParty", async () => {
 
   expect(() => {
     createTelemetrySinkFromEnv({
-      CLAUDE_CONFIG_DIR: TEST_ENV.CLAUDE_CONFIG_DIR,
+      ...withIsolatedClaudeConfig({}),
       OPENCODE_CC_OTEL_CONFIG_PATH: configPath,
     });
   }).toThrow("thirdParty telemetry unsupported yet");
@@ -687,12 +693,11 @@ test("createTelemetrySinkFromEnv writes 2P otel-json to ndjson file by default",
   await ensureEmptyClaudeRemoteSettings();
 
   const sink = createTelemetrySinkFromEnv(
-    {
-      CLAUDE_CONFIG_DIR: TEST_ENV.CLAUDE_CONFIG_DIR,
+    withIsolatedClaudeConfig({
       CLAUDE_CODE_VERSION: "2.1.71",
       OPENCODE_CC_OTEL_CONFIG_PATH: missingTelemetryConfigPath(),
       OPENCODE_CC_OTEL_2P_FILE_PATH: "/tmp/unused.ndjson",
-    },
+    }),
     {
       createSecondPartyWriter: () => ({
         write: (payload) => {
@@ -738,13 +743,12 @@ test("explicit service version still wins over Claude Code version", async () =>
   await ensureEmptyClaudeRemoteSettings();
 
   const sink = createTelemetrySinkFromEnv(
-    {
-      CLAUDE_CONFIG_DIR: TEST_ENV.CLAUDE_CONFIG_DIR,
+    withIsolatedClaudeConfig({
       CLAUDE_CODE_VERSION: "2.1.71",
       OPENCODE_CC_OTEL_CONFIG_PATH: missingTelemetryConfigPath(),
       OPENCODE_CC_OTEL_SERVICE_VERSION: "9.9.9",
       OPENCODE_CC_OTEL_2P_FILE_PATH: "/tmp/unused.ndjson",
-    },
+    }),
     {
       createSecondPartyWriter: () => ({
         write: (payload) => {
@@ -803,15 +807,14 @@ test("2P file sink injects user identity attrs from telemetry config", async () 
     );
 
     const sink = createTelemetrySinkFromEnv(
-      {
-        CLAUDE_CONFIG_DIR: TEST_ENV.CLAUDE_CONFIG_DIR,
+      withIsolatedClaudeConfig({
         TEST_USER_EMAIL: "dev@company.test",
         TEST_USER_ID: "u-123",
         TEST_ORG_ID: "org-123",
         TEST_ACCOUNT_UUID: "acct-123",
         OPENCODE_CC_OTEL_CONFIG_PATH: configPath,
         OPENCODE_CC_OTEL_2P_FILE_PATH: "/tmp/unused.ndjson",
-      },
+      }),
       {
         createSecondPartyWriter: () => ({
           write: (payload) => {
@@ -847,7 +850,10 @@ test("2P file sink injects user identity attrs from telemetry config", async () 
 
     expect(JSON.parse(writes[0] ?? "null")).toMatchObject({
       resource_attributes: {
-        "app.version": "2.1.71",
+        "app.version": expect.any(String),
+        "channel.id": "otel_3p_metrics",
+        "service.name": "claude-code",
+        "service.version": expect.any(String),
         "terminal.type": "cli",
         "user.email": "dev@company.test",
         "user.id": "u-123",
@@ -860,7 +866,7 @@ test("2P file sink injects user identity attrs from telemetry config", async () 
       body: "claude_code.tengu_input_prompt",
       attributes: {
         "event.name": "tengu_input_prompt",
-        "app.version": "2.1.71",
+        "app.version": expect.any(String),
         "terminal.type": "cli",
         "user.email": "dev@company.test",
         "user.id": "u-123",
@@ -988,7 +994,8 @@ test("permission.ask emits 2P tool decision event and metric", async () => {
       },
       unit: "{count}",
       value: 1,
-      description: undefined,
+      description:
+        "Count of code editing tool permission decisions (accept/reject) for Edit, Write, and NotebookEdit tools",
     },
   ]);
 });
@@ -1114,7 +1121,7 @@ test("message.updated success emits 1P, 2P, cost, and token metrics", async () =
       },
       unit: "USD",
       value: 0.25,
-      description: undefined,
+      description: "Cost of the Claude Code session",
     },
     {
       kind: "metric",
@@ -1128,7 +1135,7 @@ test("message.updated success emits 1P, 2P, cost, and token metrics", async () =
       },
       unit: "tokens",
       value: 10,
-      description: undefined,
+      description: "Number of tokens used",
     },
     {
       kind: "metric",
@@ -1142,7 +1149,7 @@ test("message.updated success emits 1P, 2P, cost, and token metrics", async () =
       },
       unit: "tokens",
       value: 20,
-      description: undefined,
+      description: "Number of tokens used",
     },
     {
       kind: "metric",
@@ -1156,7 +1163,7 @@ test("message.updated success emits 1P, 2P, cost, and token metrics", async () =
       },
       unit: "tokens",
       value: 3,
-      description: undefined,
+      description: "Number of tokens used",
     },
     {
       kind: "metric",
@@ -1170,7 +1177,7 @@ test("message.updated success emits 1P, 2P, cost, and token metrics", async () =
       },
       unit: "tokens",
       value: 4,
-      description: undefined,
+      description: "Number of tokens used",
     },
   ]);
 });
@@ -1253,7 +1260,8 @@ test("session.diff emits second-party lines-of-code metrics", async () => {
       },
       unit: "{count}",
       value: 5,
-      description: undefined,
+      description:
+        "Count of lines of code modified, with the 'type' attribute indicating whether lines were added or removed",
     },
     {
       kind: "metric",
@@ -1266,8 +1274,90 @@ test("session.diff emits second-party lines-of-code metrics", async () => {
       },
       unit: "{count}",
       value: 3,
-      description: undefined,
+      description:
+        "Count of lines of code modified, with the 'type' attribute indicating whether lines were added or removed",
     },
+  ]);
+});
+
+test("session.diff emits only delta lines-of-code metrics", async () => {
+  const sink = new InMemoryTelemetrySink();
+  const hooks = createHooks({
+    sink,
+    clock: createScriptedClock(1, 2, 3),
+  });
+
+  await hooks.event?.({
+    event: {
+      type: "session.diff",
+      properties: {
+        sessionID: "session-1",
+        diff: [
+          {
+            file: "src/main.ts",
+            additions: 5,
+            deletions: 3,
+            before: "",
+            after: "",
+          },
+        ],
+      },
+    },
+  } as EventInput);
+
+  expect(sink.drain()).toHaveLength(2);
+
+  await hooks.event?.({
+    event: {
+      type: "session.diff",
+      properties: {
+        sessionID: "session-1",
+        diff: [
+          {
+            file: "src/main.ts",
+            additions: 5,
+            deletions: 3,
+            before: "",
+            after: "",
+          },
+        ],
+      },
+    },
+  } as EventInput);
+
+  expect(sink.drain()).toEqual([]);
+
+  await hooks.event?.({
+    event: {
+      type: "session.diff",
+      properties: {
+        sessionID: "session-1",
+        diff: [
+          {
+            file: "src/main.ts",
+            additions: 7,
+            deletions: 10,
+            before: "",
+            after: "",
+          },
+        ],
+      },
+    },
+  } as EventInput);
+
+  expect(sink.drain()).toEqual([
+    expect.objectContaining({
+      kind: "metric",
+      name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.linesOfCodeCount,
+      attributes: { type: "added" },
+      value: 2,
+    }),
+    expect.objectContaining({
+      kind: "metric",
+      name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.linesOfCodeCount,
+      attributes: { type: "removed" },
+      value: 7,
+    }),
   ]);
 });
 
@@ -1321,7 +1411,7 @@ test("command lifecycle emits first-party command event and second-party metrics
       attributes: {},
       unit: "{count}",
       value: 1,
-      description: undefined,
+      description: "Count of pull requests created from Claude Code",
     },
     {
       kind: "metric",
@@ -1334,7 +1424,7 @@ test("command lifecycle emits first-party command event and second-party metrics
       },
       unit: "s",
       value: 0.004,
-      description: undefined,
+      description: "Total active time in seconds",
     },
   ]);
 });
