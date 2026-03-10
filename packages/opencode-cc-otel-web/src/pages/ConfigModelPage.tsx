@@ -1,5 +1,6 @@
 import { Code, Divider, Stack, Text } from "@mantine/core";
 import { FeatureGrid } from "../components/FeatureGrid";
+import { INLINE_CODE_CLASS_NAME } from "../components/InlineCode";
 import { PageFrame } from "../components/PageFrame";
 import { SectionCard } from "../components/SectionCard";
 import { SimpleTable } from "../components/SimpleTable";
@@ -22,10 +23,13 @@ const ConfigModelPage = ({
           <Divider />
           <SimpleTable rows={configPaths} valueLabel="Value" />
           <Text c="dimmed" size="sm">
-            Schema: <Code>{schemaHref}</Code>
+            Schema: <Code className={INLINE_CODE_CLASS_NAME}>{schemaHref}</Code>
           </Text>
           <Text c="dimmed" size="sm">
-            Semantics: <Code>refs/telemetry-config-model.md</Code>
+            Semantics:{" "}
+            <Code className={INLINE_CODE_CLASS_NAME}>
+              refs/telemetry-config-model.md
+            </Code>
           </Text>
         </Stack>
       </SectionCard>

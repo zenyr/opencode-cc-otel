@@ -12,7 +12,10 @@ import {
 } from "@mantine/core";
 import { CodeCard } from "../components/CodeCard";
 import { FeatureGrid } from "../components/FeatureGrid";
-import { renderInlineCode } from "../components/InlineCode";
+import {
+  INLINE_CODE_CLASS_NAME,
+  renderInlineCode,
+} from "../components/InlineCode";
 import { PageFrame } from "../components/PageFrame";
 import { SectionCard } from "../components/SectionCard";
 import { StepList } from "../components/StepList";
@@ -41,11 +44,19 @@ const OverviewPage = ({ page }: { page: PageMeta }) => {
                   Claude-compatible telemetry for OpenCode.
                 </Title>
                 <Text c="dimmed" size="lg">
-                  <Code>opencode-cc-otel</Code> is an OpenCode plugin for
-                  Claude-compatible telemetry. Add one plugin entry, add{" "}
-                  <Code>telemetry.jsonc</Code>, then start with 2P{" "}
-                  <Code>otel-json</Code> over <Code>file</Code> transport. Turn
-                  on 1P only if you need Anthropic-side reporting.
+                  <Code className={INLINE_CODE_CLASS_NAME}>
+                    opencode-cc-otel
+                  </Code>{" "}
+                  is an OpenCode plugin for Claude-compatible telemetry. Add one
+                  plugin entry, add{" "}
+                  <Code className={INLINE_CODE_CLASS_NAME}>
+                    telemetry.jsonc
+                  </Code>
+                  , then start with 2P{" "}
+                  <Code className={INLINE_CODE_CLASS_NAME}>otel-json</Code> over{" "}
+                  <Code className={INLINE_CODE_CLASS_NAME}>file</Code>{" "}
+                  transport. Turn on 1P only if you need Anthropic-side
+                  reporting.
                 </Text>
                 <Group gap="sm">
                   {heroActions.map((action) => (
@@ -105,9 +116,11 @@ const OverviewPage = ({ page }: { page: PageMeta }) => {
             title="Good first move"
             variant="light"
           >
-            Use <Code>sink = "otel-json"</Code> plus{" "}
-            <Code>transport = "file"</Code> first if you want a local proof
-            before wiring first-party HTTP auth.
+            Use{" "}
+            <Code className={INLINE_CODE_CLASS_NAME}>sink = "otel-json"</Code>{" "}
+            plus{" "}
+            <Code className={INLINE_CODE_CLASS_NAME}>transport = "file"</Code>{" "}
+            first if you want a local proof before wiring first-party HTTP auth.
           </Alert>
           <CodeCard example={quickStartExample} />
         </Stack>

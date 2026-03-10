@@ -2,6 +2,7 @@ import { Code } from "@mantine/core";
 import type { ReactNode } from "react";
 
 const inlineCodePattern = /`([^`]+)`/g;
+const INLINE_CODE_CLASS_NAME = "inline-code";
 
 const renderInlineCode = (value: string) => {
   const matches = Array.from(value.matchAll(inlineCodePattern));
@@ -22,7 +23,14 @@ const renderInlineCode = (value: string) => {
       nodes.push(value.slice(lastIndex, matchIndex));
     }
 
-    nodes.push(<Code key={`${matchIndex}-${codeValue}`}>{codeValue}</Code>);
+    nodes.push(
+      <Code
+        className={INLINE_CODE_CLASS_NAME}
+        key={`${matchIndex}-${codeValue}`}
+      >
+        {codeValue}
+      </Code>,
+    );
     lastIndex = matchIndex + fullMatch.length;
   }
 
@@ -33,4 +41,4 @@ const renderInlineCode = (value: string) => {
   return nodes;
 };
 
-export { renderInlineCode };
+export { INLINE_CODE_CLASS_NAME, renderInlineCode };

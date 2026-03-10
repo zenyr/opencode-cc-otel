@@ -131,6 +131,8 @@ const DEFAULT_CLAUDE_CONFIG_DIR_SEGMENTS = [".claude"];
 const CLAUDE_REMOTE_SETTINGS_FILE = "remote-settings.json";
 const CLAUDE_MANAGED_SETTINGS_PATH =
   "/Library/Application Support/ClaudeCode/managed-settings.json";
+let detectedClaudeCodeVersion: string | undefined;
+let hasDetectedClaudeCodeVersion = false;
 
 const readString = (value: unknown): string | undefined => {
   return typeof value === "string" ? value : undefined;
@@ -140,6 +142,11 @@ const readNumber = (value: unknown): number | undefined => {
   return typeof value === "number" && Number.isFinite(value)
     ? value
     : undefined;
+};
+
+const parseClaudeVersionOutput = (value: string): string | undefined => {
+  const match = value.trim().match(/^(\d+\.\d+\.\d+)/);
+  return match?.[1];
 };
 
 const getProp = (value: unknown, key: string): unknown => {
@@ -813,6 +820,52 @@ const defaultSecondPartyNdjsonPath = (env: EnvProvider): string => {
   return join(dataRoot, ...DEFAULT_2P_NDJSON_PATH_SEGMENTS);
 };
 
+const detectClaudeCodeVersion = (env: EnvProvider): string | undefined => {
+  if (env.CLAUDE_CODE_VERSION) {
+    return env.CLAUDE_CODE_VERSION;
+  }
+
+  if (hasDetectedClaudeCodeVersion) {
+    return detectedClaudeCodeVersion;
+  }
+
+  hasDetectedClaudeCodeVersion = true;
+
+  if (typeof Bun === "undefined" || typeof Bun.spawnSync !== "function") {
+    return undefined;
+  }
+
+  try {
+    const result = Bun.spawnSync(["claude", "--version"], {
+      env: Bun.env,
+      stderr: "pipe",
+      stdout: "pipe",
+    });
+
+    if (result.exitCode !== 0) {
+      return undefined;
+    }
+
+    detectedClaudeCodeVersion = parseClaudeVersionOutput(
+      new TextDecoder().decode(result.stdout),
+    );
+    return detectedClaudeCodeVersion;
+  } catch {
+    return undefined;
+  }
+};
+
+const resolveTelemetryServiceVersion = (
+  env: EnvProvider,
+  configValue: string | undefined,
+): string | undefined => {
+  return (
+    resolveConfigValue(env, configValue) ??
+    env.OPENCODE_CC_OTEL_SERVICE_VERSION ??
+    detectClaudeCodeVersion(env)
+  );
+};
+
 const secondPartyFilePath = (
   env: EnvProvider,
   channel?: SecondPartyChannelConfig,
@@ -1022,9 +1075,10 @@ const buildSecondPartySink = (
         serviceName:
           resolveConfigValue(env, channel.otel?.serviceName) ??
           env.OPENCODE_CC_OTEL_SERVICE_NAME,
-        serviceVersion:
-          resolveConfigValue(env, channel.otel?.serviceVersion) ??
-          env.OPENCODE_CC_OTEL_SERVICE_VERSION,
+        serviceVersion: resolveTelemetryServiceVersion(
+          env,
+          channel.otel?.serviceVersion,
+        ),
         resourceAttributes: channel.otel?.resourceAttributes,
         includeMetricSessionId: channel.otel?.includeSessionId,
         includeMetricVersion: channel.otel?.includeVersion,
@@ -1040,9 +1094,10 @@ const buildSecondPartySink = (
     serviceName:
       resolveConfigValue(env, channel?.otel?.serviceName) ??
       env.OPENCODE_CC_OTEL_SERVICE_NAME,
-    serviceVersion:
-      resolveConfigValue(env, channel?.otel?.serviceVersion) ??
-      env.OPENCODE_CC_OTEL_SERVICE_VERSION,
+    serviceVersion: resolveTelemetryServiceVersion(
+      env,
+      channel?.otel?.serviceVersion,
+    ),
     logsChannelId:
       resolveConfigValue(env, channel?.otel?.logsChannelId) ??
       env.OPENCODE_CC_OTEL_LOGS_CHANNEL_ID,

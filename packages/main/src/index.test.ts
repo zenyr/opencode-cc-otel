@@ -59,6 +59,10 @@ const ensureEmptyClaudeRemoteSettings = async (): Promise<void> => {
   await Bun.write(`${TEST_ENV.CLAUDE_CONFIG_DIR}/remote-settings.json`, "{}");
 };
 
+const missingTelemetryConfigPath = () => {
+  return `/tmp/opencode-missing-telemetry-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonc`;
+};
+
 const buildPluginInput = (): PluginInput => {
   return {
     directory: "/tmp/project",
@@ -546,6 +550,7 @@ test("createTelemetrySinkFromEnv still supports legacy env-only 1P opt-in", asyn
 
   const sink = createTelemetrySinkFromEnv({
     CLAUDE_CONFIG_DIR: TEST_ENV.CLAUDE_CONFIG_DIR,
+    OPENCODE_CC_OTEL_CONFIG_PATH: missingTelemetryConfigPath(),
     OPENCODE_CC_OTEL_SINK: "http",
     OPENCODE_CC_OTEL_HTTP_ENDPOINT: "https://telemetry.example.test/anthropic",
   });
@@ -584,6 +589,8 @@ test("createTelemetrySinkFromEnv writes 2P otel-json to ndjson file by default",
 
   const sink = createTelemetrySinkFromEnv({
     CLAUDE_CONFIG_DIR: TEST_ENV.CLAUDE_CONFIG_DIR,
+    CLAUDE_CODE_VERSION: "2.1.71",
+    OPENCODE_CC_OTEL_CONFIG_PATH: missingTelemetryConfigPath(),
     OPENCODE_CC_OTEL_2P_FILE_PATH: filePath,
   });
 
@@ -611,9 +618,44 @@ test("createTelemetrySinkFromEnv writes 2P otel-json to ndjson file by default",
       "event.timestamp": "1970-01-01T00:00:00.001Z",
       "event.sequence": expect.any(String),
       "service.name": "claude-code",
-      "service.version": "0.1.0",
+      "service.version": "2.1.71",
       "session.id": "session-1",
       prompt_length: "11",
+    },
+  });
+});
+
+test("explicit service version still wins over Claude Code version", async () => {
+  const filePath = `/tmp/opencode-telemetry-2p-override-${Date.now()}.ndjson`;
+
+  await ensureEmptyClaudeRemoteSettings();
+
+  const sink = createTelemetrySinkFromEnv({
+    CLAUDE_CONFIG_DIR: TEST_ENV.CLAUDE_CONFIG_DIR,
+    CLAUDE_CODE_VERSION: "2.1.71",
+    OPENCODE_CC_OTEL_CONFIG_PATH: missingTelemetryConfigPath(),
+    OPENCODE_CC_OTEL_SERVICE_VERSION: "9.9.9",
+    OPENCODE_CC_OTEL_2P_FILE_PATH: filePath,
+  });
+
+  await sink.publish([
+    {
+      kind: "event",
+      channel: "secondParty",
+      name: TELEMETRY_EVENT_NAMES.secondParty.userPrompt,
+      timestamp: "1970-01-01T00:00:00.001Z",
+      sessionId: "session-1",
+      attributes: {
+        prompt_length: 11,
+      },
+    },
+  ]);
+
+  const lines = (await Bun.file(filePath).text()).trim().split("\n");
+
+  expect(JSON.parse(lines[0] ?? "null")).toMatchObject({
+    attributes: {
+      "service.version": "9.9.9",
     },
   });
 });
