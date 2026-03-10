@@ -262,7 +262,7 @@ const quickStartExample: CodeExample = {
         "    },",
         '    "secondParty": {',
         '      "enabled": true,',
-        '      "sink": "otlp-json",',
+        '      "sink": "otel-json",',
         '      "transport": "file",',
         '      "file": {',
         '        "path": "env:OPENCODE_CC_OTEL_2P_FILE_PATH"',
@@ -311,7 +311,7 @@ const channelModelCards: FeatureCard[] = [
   {
     title: "secondParty",
     description:
-      "Team-side reporting via `otel-json`, with explicit transport selection. Default local transport is file/ndjson.",
+      "Team-side reporting via `otel-json` or `otlp-json`, with explicit transport selection. Default local transport is file/ndjson.",
   },
   {
     title: "thirdParty",
@@ -430,7 +430,7 @@ const secondPartyTransports: RowDef[] = [
     name: "http",
     value: "collector delivery",
     description:
-      "POST official OTLP JSON payloads to an HTTP endpoint. Supports `http/json` protocol for policy-driven collector routing.",
+      "Used by `otlp-json` today. POST official OTLP JSON payloads to an HTTP endpoint with `http/json` protocol.",
   },
 ];
 
@@ -444,7 +444,7 @@ const secondPartyAttrs: RowDef[] = [
     name: "serviceVersion",
     value: "Claude Code version",
     description:
-      "Override `service.version`. Supports `env:NAME`. Default falls back to detected Claude Code version.",
+      "Override `service.version`. Supports `env:NAME`. Default falls back to `CLAUDE_CODE_VERSION` or detected Claude Code version.",
   },
   {
     name: "userEmail",
@@ -467,12 +467,14 @@ const secondPartyAttrs: RowDef[] = [
   {
     name: "logsChannelId",
     value: "otel_3p_logs",
-    description: "OTEL logs channel id. Can also come from env override.",
+    description:
+      "OTEL logs channel id for `otel-json`. Can also come from env override.",
   },
   {
     name: "metricsChannelId",
     value: "otel_3p_metrics",
-    description: "OTEL metrics channel id. Can also come from env override.",
+    description:
+      "OTEL metrics channel id for `otel-json`. Can also come from env override.",
   },
 ];
 
@@ -485,7 +487,7 @@ const secondPartyEnvVars: RowDef[] = [
   {
     name: "OPENCODE_CC_OTEL_SERVICE_NAME",
     value: "claude-code",
-    description: "Fallback service name for `otel-json` output.",
+    description: "Fallback service name for 2P OTEL output.",
   },
   {
     name: "OPENCODE_CC_OTEL_SERVICE_VERSION",
@@ -496,28 +498,30 @@ const secondPartyEnvVars: RowDef[] = [
   {
     name: "OPENCODE_CC_OTEL_USER_EMAIL",
     value: "unset",
-    description: "Optional user email for telemetry.jsonc identity injection.",
+    description:
+      'Example env var for `otel.userEmail = "env:OPENCODE_CC_OTEL_USER_EMAIL"`.',
   },
   {
     name: "OPENCODE_CC_OTEL_USER_ID",
     value: "unset",
-    description: "Optional user id for telemetry.jsonc identity injection.",
+    description:
+      'Example env var for `otel.userId = "env:OPENCODE_CC_OTEL_USER_ID"`.',
   },
   {
     name: "OPENCODE_CC_OTEL_ORGANIZATION_ID",
     value: "unset",
     description:
-      "Optional organization id override for telemetry.jsonc identity injection.",
+      'Example env var for `otel.organizationId = "env:OPENCODE_CC_OTEL_ORGANIZATION_ID"`.',
   },
   {
     name: "OPENCODE_CC_OTEL_LOGS_CHANNEL_ID",
     value: "otel_3p_logs",
-    description: "Fallback OTEL logs channel id.",
+    description: "Fallback OTEL logs channel id for `otel-json`.",
   },
   {
     name: "OPENCODE_CC_OTEL_METRICS_CHANNEL_ID",
     value: "otel_3p_metrics",
-    description: "Fallback OTEL metrics channel id.",
+    description: "Fallback OTEL metrics channel id for `otel-json`.",
   },
 ];
 
@@ -543,8 +547,6 @@ const secondPartyExample: CodeExample = {
     '        "userEmail": "env:OPENCODE_CC_OTEL_USER_EMAIL",',
     '        "userId": "env:OPENCODE_CC_OTEL_USER_ID",',
     '        "organizationId": "env:OPENCODE_CC_OTEL_ORGANIZATION_ID",',
-    '        "logsChannelId": "otel_3p_logs",',
-    '        "metricsChannelId": "otel_3p_metrics",',
     '        "includeSessionId": true,',
     '        "includeVersion": true,',
     '        "resourceAttributes": {',
@@ -584,13 +586,13 @@ const emittedOutputs: RowDef[] = [
     name: "2P logs",
     value: "otel-json / otlp-json",
     description:
-      "`claude_code.tengu_input_prompt`, `claude_code.tengu_tool_use_success`, `claude_code.tengu_api_success`, `claude_code.tengu_api_error`, plus unmapped Claude-side events where needed.",
+      "`claude_code.tengu_input_prompt`, `claude_code.tengu_tool_use_success`, `claude_code.tengu_api_success`, `claude_code.tengu_api_error`, `claude_code.tool_decision`.",
   },
   {
     name: "2P metrics",
     value: "otel-json / otlp-json",
     description:
-      "`session.count`, `lines_of_code.count`, `pull_request.count`, `commit.count`, `cost.usage`, `token.usage`, `code_edit_tool.decision`, `active_time.total`.",
+      "`claude_code.session.count`, `claude_code.lines_of_code.count`, `claude_code.pull_request.count`, `claude_code.commit.count`, `claude_code.cost.usage`, `claude_code.token.usage`, `claude_code.code_edit_tool.decision`, `claude_code.active_time.total`.",
   },
 ];
 
@@ -600,14 +602,14 @@ const parityMatrix: ParityRow[] = [
     status: "High",
     current: "1P + 2P emitted",
     notes:
-      "`tengu_input_prompt` and `claude_code.user_prompt` both emit from `chat.message`.",
+      "`chat.message` records 1P `tengu_input_prompt`; 2P export normalizes to `claude_code.tengu_input_prompt`.",
   },
   {
     area: "Tool lifecycle",
     status: "Medium-high",
     current: "Success path only",
     notes:
-      "1P `tengu_tool_use_success` and 2P `claude_code.tool_result` emit on success. 1P tool error not emitted yet.",
+      "Success exports as 1P `tengu_tool_use_success` and 2P `claude_code.tengu_tool_use_success`. 1P tool error not emitted yet.",
   },
   {
     area: "Permission decisions",
@@ -621,7 +623,7 @@ const parityMatrix: ParityRow[] = [
     status: "High",
     current: "1P + 2P emitted",
     notes:
-      "`message.updated` maps to 1P success/error, 2P api request/error, plus cost and token metrics.",
+      "`message.updated` maps to 1P success/error, 2P Claude-contract success/error export, plus cost and token metrics.",
   },
   {
     area: "Token and cost metrics",
@@ -743,7 +745,7 @@ const parityMatrix: ParityRow[] = [
 const knownGaps = [
   "Full Claude parity is still partial where the OpenCode plugin API lacks source fields.",
   "thirdParty forwarding is unsupported and must stay disabled.",
-  "secondParty export is Claude-style OTEL JSON, not native OTEL SDK wiring.",
+  "secondParty export supports Claude-style OTEL JSON and OTLP JSON, not native OTEL SDK wiring.",
   "firstParty tool error and firstParty slash/bash/startup/git-operation events are not emitted yet.",
   "Session lifecycle and file lifecycle coverage are not wired yet.",
   "`active_time.total` is derived from command duration only, not full user activity.",
