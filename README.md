@@ -65,8 +65,8 @@ Current 2P recommendation:
 - `OPENCODE_CC_OTEL_HTTP_MAX_ATTEMPTS`: retry cap, default `8`
 - `OPENCODE_CC_OTEL_HTTP_BACKOFF_MS`: base backoff, default `500`
 - `OPENCODE_CC_OTEL_QUEUE_DIR`: optional disk queue dir for failed batch replay
-- `OPENCODE_CC_OTEL_SERVICE_NAME`: service name for `otel-json`, default `claude-code`
-- `OPENCODE_CC_OTEL_SERVICE_VERSION`: service version for `otel-json`, default `0.1.0`
+- `OPENCODE_CC_OTEL_SERVICE_NAME`: service name fallback for 2P OTEL output, default `claude-code`
+- `OPENCODE_CC_OTEL_SERVICE_VERSION`: service version fallback for 2P OTEL output; runtime prefers explicit config/env, then `CLAUDE_CODE_VERSION`, then detected `claude --version`
 - `OPENCODE_CC_OTEL_LOGS_CHANNEL_ID`: logs channel id for `otel-json`, default `otel_3p_logs`
 - `OPENCODE_CC_OTEL_METRICS_CHANNEL_ID`: metrics channel id for `otel-json`, default `otel_3p_metrics`
 - `OPENCODE_CC_OTEL_MAX_BATCH_SIZE`: app buffer size, default `1`
@@ -128,8 +128,8 @@ Current supported mapping covers these signal families:
 Current emitted Claude-compatible outputs:
 
 - 1P events: `tengu_input_prompt`, `tengu_input_command`, `tengu_tool_use_success`, `tengu_api_success`, `tengu_api_error`
-- 2P logs: `claude_code.user_prompt`, `claude_code.tool_result`, `claude_code.api_request`, `claude_code.api_error`, `claude_code.tool_decision`
-- 2P metrics: `session.count`, `lines_of_code.count`, `pull_request.count`, `commit.count`, `cost.usage`, `token.usage`, `code_edit_tool.decision`, `active_time.total`
+- 2P logs: `claude_code.tengu_input_prompt`, `claude_code.tengu_tool_use_success`, `claude_code.tengu_api_success`, `claude_code.tengu_api_error`, `claude_code.tool_decision`
+- 2P metrics: `claude_code.session.count`, `claude_code.lines_of_code.count`, `claude_code.pull_request.count`, `claude_code.commit.count`, `claude_code.cost.usage`, `claude_code.token.usage`, `claude_code.code_edit_tool.decision`, `claude_code.active_time.total`
 
 ## Operational behavior
 

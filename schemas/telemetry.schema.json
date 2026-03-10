@@ -273,8 +273,6 @@
           "otel": {
             "serviceName": "claude-code",
             "serviceVersion": "env:OPENCODE_CC_OTEL_SERVICE_VERSION",
-            "logsChannelId": "otel_3p_logs",
-            "metricsChannelId": "otel_3p_metrics",
             "includeSessionId": true,
             "includeVersion": true,
             "resourceAttributes": {

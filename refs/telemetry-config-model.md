@@ -93,7 +93,7 @@ Current implementation:
 - 2P local default is `otel-json` over file transport
 - file transport writes append-only NDJSON
 - console remains available as an explicit transport
-- HTTP transport can carry either Claude-style `otel-json` compatibility output in future or official `otlp-json` export payloads; current OTLP path is `sink = "otlp-json"` over HTTP
+- HTTP transport is currently only supported for `sink = "otlp-json"`; `otel-json` stays file/console only
 
 ## Preferred direction
 
@@ -114,7 +114,6 @@ Target examples:
 For 2P local development, preferred default is:
 
 - sink: `otel-json`
-- sink: `otlp-json`
 - transport: `file`
 - file format: newline-delimited JSON (`ndjson`)
 

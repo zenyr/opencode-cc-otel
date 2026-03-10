@@ -33,8 +33,8 @@ So:
 
 | area | Claude spec | OpenCode plugin parity | notes |
 | --- | --- | --- | --- |
-| user prompt events/logs | `tengu_input_prompt`, `claude_code.user_prompt` | high | plugin surface exposes enough prompt/session/model context; current repo emits both |
-| tool lifecycle | `tengu_tool_use_*`, `claude_code.tool_result` | medium-high | success path is strong; current repo does not emit first-party tool error yet |
+| user prompt events/logs | `tengu_input_prompt`, `claude_code.tengu_input_prompt` | high | plugin surface exposes enough prompt/session/model context; repo records 2P prompt events then exports Claude-contract log names |
+| tool lifecycle | `tengu_tool_use_*`, `claude_code.tengu_tool_use_success` | medium-high | success path is strong; current repo does not emit first-party tool error yet |
 | permission decision metrics | `claude_code.code_edit_tool.decision` | high | `permission.ask` gives decision result; source attribution still partial |
 | command/git operation events | `tengu_input_command`, git op tracking | medium-high | `command.execute.before` + `event.command.executed`; current repo derives commit/PR metrics heuristically, failure detail still thin |
 | token/cost/API usage | `claude_code.token.usage`, `cost.usage`, `api_*` | medium-high | `event.message.updated` assistant msg has `cost`, `tokens`, success/error info; request attempt/provider transport detail still partial |
@@ -102,7 +102,7 @@ This means transport parity is mostly an engineering task, not an API limitation
 
 Current repo status on delivery:
 
-- implemented: first-party batch envelope, 401 retry without auth on second attempt, disk-backed replay, fanout, channel-aware config, second-party OTEL-style JSON output
+- implemented: first-party batch envelope, 401 retry without auth on second attempt, disk-backed replay, fanout, channel-aware config, second-party OTEL-style JSON output with Claude-contract export names
 - not implemented: dedicated Segment adapter, dedicated Datadog adapter, trace exporter
 - implemented: Claude policy file hydration for supported 2P telemetry settings, 2P OTLP JSON HTTP delivery, official OTLP payload typing, metric include flags for session/version/account UUID where source values exist
 
