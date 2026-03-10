@@ -45,6 +45,7 @@ type TelemetryOtelConfig = {
   resourceAttributes?: Record<string, string>;
   userEmail?: string;
   userId?: string;
+  organizationId?: string;
   includeSessionId?: boolean;
   includeVersion?: boolean;
   includeAccountUuid?: boolean;
@@ -105,6 +106,14 @@ type RuntimeOptions = {
   providerFilter?: ProviderFilterConfig;
 };
 
+type SecondPartyWriter = {
+  write: (payload: string) => Promise<void> | void;
+};
+
+type TelemetryFactoryOptions = {
+  createSecondPartyWriter?: (path: string) => SecondPartyWriter;
+};
+
 type ToolCallState = {
   startedAtMs: number;
 };
@@ -130,11 +139,21 @@ const DEFAULT_2P_NDJSON_PATH_SEGMENTS = [
   "otel.ndjson",
 ];
 const DEFAULT_CLAUDE_CONFIG_DIR_SEGMENTS = [".claude"];
+const DEFAULT_CLAUDE_HOME_CONFIG_FILE = ".claude.json";
 const CLAUDE_REMOTE_SETTINGS_FILE = "remote-settings.json";
 const CLAUDE_MANAGED_SETTINGS_PATH =
   "/Library/Application Support/ClaudeCode/managed-settings.json";
+type ClaudeLocalIdentity = {
+  userId?: string;
+  userEmail?: string;
+  organizationId?: string;
+  accountUuid?: string;
+};
+
 let detectedClaudeCodeVersion: string | undefined;
 let hasDetectedClaudeCodeVersion = false;
+let detectedClaudeLocalIdentity: ClaudeLocalIdentity = {};
+let hasDetectedClaudeLocalIdentity = false;
 
 const readString = (value: unknown): string | undefined => {
   return typeof value === "string" ? value : undefined;
@@ -425,20 +444,38 @@ const resolveIdentityAttributes = (
   env: EnvProvider,
   otel: TelemetryOtelConfig | undefined,
 ): Record<string, string> | undefined => {
-  const userEmail = resolveConfigValue(env, otel?.userEmail);
-  const userId = resolveConfigValue(env, otel?.userId);
+  const detectedIdentity = loadClaudeLocalIdentity();
+  const userEmail =
+    resolveConfigValue(env, otel?.userEmail) ?? detectedIdentity.userEmail;
+  const userId =
+    resolveConfigValue(env, otel?.userId) ?? detectedIdentity.userId;
+  const organizationId =
+    resolveConfigValue(env, otel?.organizationId) ??
+    detectedIdentity.organizationId;
+  const accountUuid =
+    resolveConfigValue(env, otel?.accountUuid) ?? detectedIdentity.accountUuid;
 
   return mergeStringRecords(
     resolveConfigStringRecord(env, otel?.resourceAttributes),
     {
       ...(userEmail
         ? {
-            user_email: userEmail,
+            "user.email": userEmail,
           }
         : {}),
       ...(userId
         ? {
-            userId,
+            "user.id": userId,
+          }
+        : {}),
+      ...(organizationId
+        ? {
+            "organization.id": organizationId,
+          }
+        : {}),
+      ...(otel?.includeAccountUuid && accountUuid
+        ? {
+            "user.account_uuid": accountUuid,
           }
         : {}),
     },
@@ -474,6 +511,50 @@ const defaultClaudeConfigDir = (env: EnvProvider): string => {
 
 const defaultClaudeRemoteSettingsPath = (env: EnvProvider): string => {
   return join(defaultClaudeConfigDir(env), CLAUDE_REMOTE_SETTINGS_FILE);
+};
+
+const defaultClaudeHomeConfigPath = (): string => {
+  return join(homedir(), DEFAULT_CLAUDE_HOME_CONFIG_FILE);
+};
+
+export const extractClaudeLocalIdentity = (
+  input: unknown,
+): ClaudeLocalIdentity => {
+  if (!input || typeof input !== "object") {
+    return {};
+  }
+
+  const userId = Reflect.get(input, "userID");
+  const oauthAccount = Reflect.get(input, "oauthAccount");
+  const account =
+    oauthAccount && typeof oauthAccount === "object" ? oauthAccount : undefined;
+
+  return {
+    userId: typeof userId === "string" ? userId : undefined,
+    userEmail:
+      typeof Reflect.get(account, "emailAddress") === "string"
+        ? (Reflect.get(account, "emailAddress") as string)
+        : undefined,
+    organizationId:
+      typeof Reflect.get(account, "organizationUuid") === "string"
+        ? (Reflect.get(account, "organizationUuid") as string)
+        : undefined,
+    accountUuid:
+      typeof Reflect.get(account, "accountUuid") === "string"
+        ? (Reflect.get(account, "accountUuid") as string)
+        : undefined,
+  };
+};
+
+const loadClaudeLocalIdentity = (): ClaudeLocalIdentity => {
+  if (hasDetectedClaudeLocalIdentity) {
+    return detectedClaudeLocalIdentity;
+  }
+
+  hasDetectedClaudeLocalIdentity = true;
+  const parsed = readJsoncFileIfExists<unknown>(defaultClaudeHomeConfigPath());
+  detectedClaudeLocalIdentity = extractClaudeLocalIdentity(parsed);
+  return detectedClaudeLocalIdentity;
 };
 
 type ClaudeTelemetryHints = {
@@ -955,6 +1036,7 @@ const isProviderAllowed = (
 const buildSecondPartyWriter = (
   env: EnvProvider,
   channel?: SecondPartyChannelConfig,
+  options?: TelemetryFactoryOptions,
 ): ((payload: string) => Promise<void>) => {
   const transport = channel?.transport ?? "file";
 
@@ -972,11 +1054,13 @@ const buildSecondPartyWriter = (
     throw new Error("otel-json http transport unsupported; use otlp-json sink");
   }
 
-  const writer = new NdjsonFileWriter({
-    path: secondPartyFilePath(env, channel),
-  });
+  const path = secondPartyFilePath(env, channel);
+  const writer =
+    options?.createSecondPartyWriter?.(path) ?? new NdjsonFileWriter({ path });
 
-  return (payload) => writer.write(payload);
+  return async (payload) => {
+    await writer.write(payload);
+  };
 };
 
 export const loadTelemetryConfig = (
@@ -1078,6 +1162,7 @@ const buildFirstPartySink = (
 const buildSecondPartySink = (
   env: EnvProvider,
   channel?: SecondPartyChannelConfig,
+  options?: TelemetryFactoryOptions,
 ): ReplayableSink | undefined => {
   if (channel?.enabled === false) {
     return undefined;
@@ -1128,7 +1213,7 @@ const buildSecondPartySink = (
   const resourceAttributes = resolveIdentityAttributes(env, channel?.otel);
 
   return new SecondPartyOtelSink({
-    write: buildSecondPartyWriter(env, channel),
+    write: buildSecondPartyWriter(env, channel, options),
     serviceName:
       resolveConfigValue(env, channel?.otel?.serviceName) ??
       env.OPENCODE_CC_OTEL_SERVICE_NAME,
@@ -1150,7 +1235,10 @@ const buildSecondPartySink = (
   });
 };
 
-const buildSinkFromChannels = (env: EnvProvider): ReplayableSink => {
+const buildSinkFromChannels = (
+  env: EnvProvider,
+  options?: TelemetryFactoryOptions,
+): ReplayableSink => {
   const config = loadTelemetryConfig(env);
   const channels = config?.channels;
 
@@ -1161,7 +1249,7 @@ const buildSinkFromChannels = (env: EnvProvider): ReplayableSink => {
   const firstParty = buildFirstPartySink(env, channels?.firstParty, {
     defaultEnabled: false,
   });
-  const secondParty = buildSecondPartySink(env, channels?.secondParty);
+  const secondParty = buildSecondPartySink(env, channels?.secondParty, options);
   const sinks = [firstParty, secondParty].filter(
     (sink): sink is ReplayableSink => sink !== undefined,
   );
@@ -1183,10 +1271,11 @@ const buildSinkFromChannels = (env: EnvProvider): ReplayableSink => {
 
 export const createTelemetrySinkFromEnv = (
   env: EnvProvider = DEFAULT_ENV,
+  options?: TelemetryFactoryOptions,
 ): ReplayableSink => {
   const config = loadTelemetryConfig(env);
   if (config?.channels) {
-    return buildSinkFromChannels(env);
+    return buildSinkFromChannels(env, options);
   }
 
   const sinkType =
@@ -1211,18 +1300,26 @@ export const createTelemetrySinkFromEnv = (
 
   if (sinkType === "otel-json") {
     return (
-      buildSecondPartySink(env, {
-        sink: "otel-json",
-      }) ?? new NoopTelemetrySink()
+      buildSecondPartySink(
+        env,
+        {
+          sink: "otel-json",
+        },
+        options,
+      ) ?? new NoopTelemetrySink()
     );
   }
 
   if (sinkType === "console") {
     return (
-      buildSecondPartySink(env, {
-        sink: "otel-json",
-        transport: "console",
-      }) ?? new NoopTelemetrySink()
+      buildSecondPartySink(
+        env,
+        {
+          sink: "otel-json",
+          transport: "console",
+        },
+        options,
+      ) ?? new NoopTelemetrySink()
     );
   }
 

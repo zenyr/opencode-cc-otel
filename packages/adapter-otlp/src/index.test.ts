@@ -56,8 +56,10 @@ test("createOtlpLogsRequest builds official OTLP logs payload shape", () => {
         resource: {
           attributes: [
             { key: "service.name", value: { stringValue: "claude-code" } },
+            { key: "terminal.type", value: { stringValue: "cli" } },
             { key: "service.instance", value: { stringValue: "flex" } },
             { key: "service.version", value: { stringValue: "2.1.69" } },
+            { key: "app.version", value: { stringValue: "2.1.69" } },
           ],
         },
         scopeLogs: [
@@ -70,12 +72,12 @@ test("createOtlpLogsRequest builds official OTLP logs payload shape", () => {
               {
                 timeUnixNano: "1000000",
                 body: {
-                  stringValue: "claude_code.tool_result",
+                  stringValue: "claude_code.tengu_tool_use_success",
                 },
                 attributes: [
                   {
                     key: "event.name",
-                    value: { stringValue: "claude_code.tool_result" },
+                    value: { stringValue: "tengu_tool_use_success" },
                   },
                   {
                     key: "tool_name",
@@ -119,9 +121,11 @@ test("createOtlpMetricsRequest builds official OTLP metrics payload shape", () =
         resource: {
           attributes: [
             { key: "service.name", value: { stringValue: "claude-code" } },
+            { key: "terminal.type", value: { stringValue: "cli" } },
             { key: "service.instance", value: { stringValue: "flex" } },
             { key: "service.version", value: { stringValue: "2.1.69" } },
-            { key: "account.uuid", value: { stringValue: "acct-1" } },
+            { key: "app.version", value: { stringValue: "2.1.69" } },
+            { key: "user.account_uuid", value: { stringValue: "acct-1" } },
           ],
         },
         scopeMetrics: [

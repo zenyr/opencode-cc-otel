@@ -1,4 +1,5 @@
 import type { TelemetrySinkPort } from "@zenyr/telemetry-application";
+import { TELEMETRY_EVENT_NAMES } from "@zenyr/telemetry-domain";
 import type {
   TelemetryAttributeValue,
   TelemetryMetricRecord,
@@ -115,7 +116,23 @@ const DEFAULT_HTTP_BACKOFF_MS = 500;
 const DEFAULT_HTTP_MAX_BACKOFF_MS = 30_000;
 const DEFAULT_OTEL_SERVICE_NAME = "claude-code";
 const DEFAULT_OTEL_SERVICE_VERSION = "0.1.0";
+const DEFAULT_TERMINAL_TYPE = "cli";
 const OTLP_AGGREGATION_TEMPORALITY_CUMULATIVE = 2 as const;
+
+const claudeContractEventName = (name: string): string => {
+  switch (name) {
+    case TELEMETRY_EVENT_NAMES.secondParty.userPrompt:
+      return TELEMETRY_EVENT_NAMES.firstParty.inputPrompt;
+    case TELEMETRY_EVENT_NAMES.secondParty.apiRequest:
+      return TELEMETRY_EVENT_NAMES.firstParty.apiSuccess;
+    case TELEMETRY_EVENT_NAMES.secondParty.apiError:
+      return TELEMETRY_EVENT_NAMES.firstParty.apiError;
+    case TELEMETRY_EVENT_NAMES.secondParty.toolResult:
+      return TELEMETRY_EVENT_NAMES.firstParty.toolUseSuccess;
+    default:
+      return name.replace(/^claude_code\./, "");
+  }
+};
 
 const isRetryableStatus = (status: number): boolean => {
   return status === 401 || status === 408 || status === 429 || status >= 500;
@@ -218,18 +235,20 @@ const createOtlpResourceAttributes = (options: {
   includeAccountUuid?: boolean;
   accountUuid?: string;
 }): Record<string, TelemetryAttributeValue> => {
+  const serviceVersion = options.serviceVersion ?? DEFAULT_OTEL_SERVICE_VERSION;
   const attributes: Record<string, TelemetryAttributeValue> = {
     "service.name": options.serviceName ?? DEFAULT_OTEL_SERVICE_NAME,
+    "terminal.type": DEFAULT_TERMINAL_TYPE,
     ...(options.resourceAttributes ?? {}),
   };
 
   if (options.includeVersion !== false) {
-    attributes["service.version"] =
-      options.serviceVersion ?? DEFAULT_OTEL_SERVICE_VERSION;
+    attributes["service.version"] = serviceVersion;
+    attributes["app.version"] = serviceVersion;
   }
 
   if (options.includeAccountUuid && options.accountUuid) {
-    attributes["account.uuid"] = options.accountUuid;
+    attributes["user.account_uuid"] = options.accountUuid;
   }
 
   return attributes;
@@ -250,8 +269,9 @@ export const createOtlpLogsRequest = (
       (event) => event.channel === "secondParty" && event.kind === "event",
     )
     .map((event) => {
+      const contractEventName = claudeContractEventName(event.name);
       const attributes: Record<string, TelemetryAttributeValue> = {
-        "event.name": event.name,
+        "event.name": contractEventName,
         ...event.attributes,
       };
 
@@ -261,7 +281,7 @@ export const createOtlpLogsRequest = (
 
       return {
         timeUnixNano: toUnixTimeNano(event.timestamp),
-        body: { stringValue: event.name },
+        body: { stringValue: `claude_code.${contractEventName}` },
         attributes: toOtlpKeyValues(attributes),
       };
     });

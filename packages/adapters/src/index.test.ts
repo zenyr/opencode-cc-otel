@@ -207,22 +207,24 @@ test("createSecondPartyLogEnvelope builds Claude-compatible OTEL log shape", () 
     serviceName: "claude-code",
     serviceVersion: "2.1.69",
     resourceAttributes: {
-      user_email: "dev@company.test",
-      userId: "u-123",
+      "user.email": "dev@company.test",
+      "user.id": "u-123",
     },
   });
 
   expect(envelope).toEqual({
-    body: "claude_code.tool_result",
+    body: "claude_code.tengu_tool_use_success",
     attributes: {
       "channel.id": "otel_3p_logs",
-      "event.name": "tool_result",
+      "event.name": "tengu_tool_use_success",
       "event.timestamp": "1970-01-01T00:00:00.001Z",
-      "event.sequence": "7",
+      "event.sequence": 7,
       "service.name": "claude-code",
       "service.version": "2.1.69",
-      user_email: "dev@company.test",
-      userId: "u-123",
+      "app.version": "2.1.69",
+      "terminal.type": "cli",
+      "user.email": "dev@company.test",
+      "user.id": "u-123",
       "session.id": "session-1",
       tool_name: "edit",
       success: "true",
@@ -249,6 +251,8 @@ test("createSecondPartyMetricEnvelope builds Claude-compatible OTEL metric shape
       "channel.id": "otel_3p_metrics",
       "service.name": "claude-code",
       "service.version": "2.1.69",
+      "app.version": "2.1.69",
+      "terminal.type": "cli",
       "user.subscription_type": "team",
     },
     metrics: [
@@ -290,7 +294,8 @@ test("createSecondPartyMetricEnvelope honors include flags", () => {
     resource_attributes: {
       "channel.id": "otel_3p_metrics",
       "service.name": "claude-code",
-      "account.uuid": "acct-1",
+      "terminal.type": "cli",
+      "user.account_uuid": "acct-1",
     },
     metrics: [
       {
@@ -330,14 +335,16 @@ test("SecondPartyOtelSink writes one payload per event or metric", async () => {
   ]);
 
   expect(JSON.parse(writes[0] ?? "null")).toEqual({
-    body: "claude_code.tool_result",
+    body: "claude_code.tengu_tool_use_success",
     attributes: {
       "channel.id": "otel_3p_logs",
-      "event.name": "tool_result",
+      "event.name": "tengu_tool_use_success",
       "event.timestamp": "1970-01-01T00:00:00.001Z",
-      "event.sequence": "9",
+      "event.sequence": 9,
       "service.name": "claude-code",
       "service.version": "2.1.69",
+      "app.version": "2.1.69",
+      "terminal.type": "cli",
       "session.id": "session-1",
       tool_name: "edit",
       success: "true",
@@ -346,14 +353,15 @@ test("SecondPartyOtelSink writes one payload per event or metric", async () => {
 
   expect(JSON.parse(writes[1] ?? "null")).toEqual({
     resource_attributes: {
+      "app.version": "2.1.69",
       "channel.id": "otel_3p_metrics",
       "service.name": "claude-code",
       "service.version": "2.1.69",
+      "terminal.type": "cli",
     },
     metrics: [
       {
         name: "claude_code.token.usage",
-        description: undefined,
         unit: "tokens",
         data_points: [
           {

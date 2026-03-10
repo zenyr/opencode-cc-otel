@@ -2,6 +2,7 @@ import { appendFile, mkdir, readdir, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { TelemetrySinkPort } from "@zenyr/telemetry-application";
+import { TELEMETRY_EVENT_NAMES } from "@zenyr/telemetry-domain";
 import type {
   ModelCost,
   ModelPricingPort,
@@ -65,7 +66,7 @@ export type SecondPartyOtelSinkOptions = {
 
 export type SecondPartyLogEnvelope = {
   body: string;
-  attributes: Record<string, string>;
+  attributes: Record<string, string | number>;
 };
 
 export type SecondPartyMetricEnvelope = {
@@ -96,6 +97,7 @@ const DEFAULT_OTEL_LOGS_CHANNEL_ID = "otel_3p_logs";
 const DEFAULT_OTEL_METRICS_CHANNEL_ID = "otel_3p_metrics";
 const DEFAULT_OTEL_SERVICE_NAME = "claude-code";
 const DEFAULT_OTEL_SERVICE_VERSION = "0.1.0";
+const DEFAULT_TERMINAL_TYPE = "cli";
 const OTLP_AGGREGATION_TEMPORALITY_CUMULATIVE = 2 as const;
 
 const FILE_LANGUAGE_MAP = new Map<string, string>([
@@ -144,6 +146,21 @@ const shortEventName = (name: string): string => {
   return dotAt === -1 ? name : name.slice(dotAt + 1);
 };
 
+const claudeContractEventName = (name: string): string => {
+  switch (name) {
+    case TELEMETRY_EVENT_NAMES.secondParty.userPrompt:
+      return TELEMETRY_EVENT_NAMES.firstParty.inputPrompt;
+    case TELEMETRY_EVENT_NAMES.secondParty.apiRequest:
+      return TELEMETRY_EVENT_NAMES.firstParty.apiSuccess;
+    case TELEMETRY_EVENT_NAMES.secondParty.apiError:
+      return TELEMETRY_EVENT_NAMES.firstParty.apiError;
+    case TELEMETRY_EVENT_NAMES.secondParty.toolResult:
+      return TELEMETRY_EVENT_NAMES.firstParty.toolUseSuccess;
+    default:
+      return name.replace(/^claude_code\./, "");
+  }
+};
+
 const buildAnthropic1PEventData = (
   event: TelemetryRecord,
   eventId: string,
@@ -184,12 +201,16 @@ export const createSecondPartyLogEnvelope = (
     resourceAttributes?: Record<string, string>;
   } = {},
 ): SecondPartyLogEnvelope => {
-  const attributes: Record<string, string> = {
+  const contractEventName = claudeContractEventName(event.name);
+  const serviceVersion = options.serviceVersion ?? DEFAULT_OTEL_SERVICE_VERSION;
+  const attributes: Record<string, string | number> = {
     "channel.id": options.channelId ?? DEFAULT_OTEL_LOGS_CHANNEL_ID,
-    "event.name": shortEventName(event.name),
+    "event.name": contractEventName,
     "event.timestamp": event.timestamp,
     "service.name": options.serviceName ?? DEFAULT_OTEL_SERVICE_NAME,
-    "service.version": options.serviceVersion ?? DEFAULT_OTEL_SERVICE_VERSION,
+    "service.version": serviceVersion,
+    "app.version": serviceVersion,
+    "terminal.type": DEFAULT_TERMINAL_TYPE,
     ...options.resourceAttributes,
   };
 
@@ -198,7 +219,7 @@ export const createSecondPartyLogEnvelope = (
   }
 
   if (options.sequence !== undefined) {
-    attributes["event.sequence"] = String(options.sequence);
+    attributes["event.sequence"] = options.sequence;
   }
 
   for (const [key, value] of Object.entries(event.attributes)) {
@@ -206,7 +227,7 @@ export const createSecondPartyLogEnvelope = (
   }
 
   return {
-    body: event.name,
+    body: `claude_code.${contractEventName}`,
     attributes,
   };
 };
@@ -227,16 +248,19 @@ export const createSecondPartyMetricEnvelope = (
   const resourceAttributes: Record<string, string> = {
     "channel.id": options.channelId ?? DEFAULT_OTEL_METRICS_CHANNEL_ID,
     "service.name": options.serviceName ?? DEFAULT_OTEL_SERVICE_NAME,
+    "terminal.type": DEFAULT_TERMINAL_TYPE,
     ...options.resourceAttributes,
   };
 
   if (options.includeVersion !== false) {
     resourceAttributes["service.version"] =
       options.serviceVersion ?? DEFAULT_OTEL_SERVICE_VERSION;
+    resourceAttributes["app.version"] =
+      options.serviceVersion ?? DEFAULT_OTEL_SERVICE_VERSION;
   }
 
   if (options.includeAccountUuid && options.accountUuid) {
-    resourceAttributes["account.uuid"] = options.accountUuid;
+    resourceAttributes["user.account_uuid"] = options.accountUuid;
   }
 
   const pointAttributes = Object.fromEntries(

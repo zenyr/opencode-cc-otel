@@ -96,12 +96,17 @@
         "userEmail": {
           "type": "string",
           "minLength": 1,
-          "description": "Inject `user_email` as a secondParty OTEL resource attr. Supports env:NAME."
+          "description": "Inject `user.email` as a secondParty OTEL resource attr. Supports env:NAME."
         },
         "userId": {
           "type": "string",
           "minLength": 1,
-          "description": "Inject `userId` as a secondParty OTEL resource attr. Supports env:NAME."
+          "description": "Inject `user.id` as a secondParty OTEL resource attr. Supports env:NAME."
+        },
+        "organizationId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Inject `organization.id` as a secondParty OTEL resource attr. Supports env:NAME."
         },
         "includeSessionId": {
           "type": "boolean",
@@ -113,12 +118,12 @@
         },
         "includeAccountUuid": {
           "type": "boolean",
-          "description": "Include `account.uuid` in secondParty metric resource attrs when `accountUuid` is set."
+          "description": "Include `user.account_uuid` in secondParty resource attrs when `accountUuid` is set."
         },
         "accountUuid": {
           "type": "string",
           "minLength": 1,
-          "description": "Explicit account UUID for secondParty metric resource attrs. Supports env:NAME."
+          "description": "Explicit account UUID for `user.account_uuid`. Supports env:NAME."
         },
         "shutdownTimeoutMs": {
           "type": "integer",

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 
 import type { PluginInput } from "@opencode-ai/plugin";
 import { InMemoryTelemetrySink } from "@zenyr/telemetry-adapters";
@@ -11,6 +11,7 @@ import {
 import {
   createOpencodeHooks,
   createTelemetrySinkFromEnv,
+  extractClaudeLocalIdentity,
   extractClaudeTelemetryConfig,
   loadTelemetryConfig,
   parseJsoncObject,
@@ -484,6 +485,7 @@ test("loadTelemetryConfig supports explicit user identity injection", async () =
           "otel": {
             "userEmail": "env:TEST_USER_EMAIL",
             "userId": "env:TEST_USER_ID",
+            "organizationId": "env:TEST_ORG_ID",
             "resourceAttributes": {
               "team": "platform"
             }
@@ -505,6 +507,7 @@ test("loadTelemetryConfig supports explicit user identity injection", async () =
         otel: {
           userEmail: "env:TEST_USER_EMAIL",
           userId: "env:TEST_USER_ID",
+          organizationId: "env:TEST_ORG_ID",
           resourceAttributes: {
             team: "platform",
           },
@@ -627,16 +630,25 @@ test("createTelemetrySinkFromEnv rejects enabled thirdParty", async () => {
 });
 
 test("createTelemetrySinkFromEnv writes 2P otel-json to ndjson file by default", async () => {
-  const filePath = `/tmp/opencode-telemetry-2p-${Date.now()}.ndjson`;
+  const writes: string[] = [];
 
   await ensureEmptyClaudeRemoteSettings();
 
-  const sink = createTelemetrySinkFromEnv({
-    CLAUDE_CONFIG_DIR: TEST_ENV.CLAUDE_CONFIG_DIR,
-    CLAUDE_CODE_VERSION: "2.1.71",
-    OPENCODE_CC_OTEL_CONFIG_PATH: missingTelemetryConfigPath(),
-    OPENCODE_CC_OTEL_2P_FILE_PATH: filePath,
-  });
+  const sink = createTelemetrySinkFromEnv(
+    {
+      CLAUDE_CONFIG_DIR: TEST_ENV.CLAUDE_CONFIG_DIR,
+      CLAUDE_CODE_VERSION: "2.1.71",
+      OPENCODE_CC_OTEL_CONFIG_PATH: missingTelemetryConfigPath(),
+      OPENCODE_CC_OTEL_2P_FILE_PATH: "/tmp/unused.ndjson",
+    },
+    {
+      createSecondPartyWriter: () => ({
+        write: (payload) => {
+          writes.push(payload);
+        },
+      }),
+    },
+  );
 
   await sink.publish([
     {
@@ -651,18 +663,17 @@ test("createTelemetrySinkFromEnv writes 2P otel-json to ndjson file by default",
     },
   ]);
 
-  const lines = (await Bun.file(filePath).text()).trim().split("\n");
-
-  expect(lines).toHaveLength(1);
-  expect(JSON.parse(lines[0] ?? "null")).toEqual({
-    body: "claude_code.user_prompt",
+  expect(writes).toHaveLength(1);
+  expect(JSON.parse(writes[0] ?? "null")).toMatchObject({
+    body: "claude_code.tengu_input_prompt",
     attributes: {
       "channel.id": "otel_3p_logs",
-      "event.name": "user_prompt",
+      "event.name": "tengu_input_prompt",
       "event.timestamp": "1970-01-01T00:00:00.001Z",
-      "event.sequence": expect.any(String),
       "service.name": "claude-code",
       "service.version": "2.1.71",
+      "app.version": "2.1.71",
+      "terminal.type": "cli",
       "session.id": "session-1",
       prompt_length: "11",
     },
@@ -670,17 +681,26 @@ test("createTelemetrySinkFromEnv writes 2P otel-json to ndjson file by default",
 });
 
 test("explicit service version still wins over Claude Code version", async () => {
-  const filePath = `/tmp/opencode-telemetry-2p-override-${Date.now()}.ndjson`;
+  const writes: string[] = [];
 
   await ensureEmptyClaudeRemoteSettings();
 
-  const sink = createTelemetrySinkFromEnv({
-    CLAUDE_CONFIG_DIR: TEST_ENV.CLAUDE_CONFIG_DIR,
-    CLAUDE_CODE_VERSION: "2.1.71",
-    OPENCODE_CC_OTEL_CONFIG_PATH: missingTelemetryConfigPath(),
-    OPENCODE_CC_OTEL_SERVICE_VERSION: "9.9.9",
-    OPENCODE_CC_OTEL_2P_FILE_PATH: filePath,
-  });
+  const sink = createTelemetrySinkFromEnv(
+    {
+      CLAUDE_CONFIG_DIR: TEST_ENV.CLAUDE_CONFIG_DIR,
+      CLAUDE_CODE_VERSION: "2.1.71",
+      OPENCODE_CC_OTEL_CONFIG_PATH: missingTelemetryConfigPath(),
+      OPENCODE_CC_OTEL_SERVICE_VERSION: "9.9.9",
+      OPENCODE_CC_OTEL_2P_FILE_PATH: "/tmp/unused.ndjson",
+    },
+    {
+      createSecondPartyWriter: () => ({
+        write: (payload) => {
+          writes.push(payload);
+        },
+      }),
+    },
+  );
 
   await sink.publish([
     {
@@ -695,9 +715,7 @@ test("explicit service version still wins over Claude Code version", async () =>
     },
   ]);
 
-  const lines = (await Bun.file(filePath).text()).trim().split("\n");
-
-  expect(JSON.parse(lines[0] ?? "null")).toMatchObject({
+  expect(JSON.parse(writes[0] ?? "null")).toMatchObject({
     attributes: {
       "service.version": "9.9.9",
     },
@@ -705,74 +723,121 @@ test("explicit service version still wins over Claude Code version", async () =>
 });
 
 test("2P file sink injects user identity attrs from telemetry config", async () => {
-  const filePath = `/tmp/opencode-telemetry-2p-identity-${Date.now()}.ndjson`;
   const configPath = `/tmp/opencode-telemetry-2p-identity-${Date.now()}.jsonc`;
+  const writes: string[] = [];
 
   await ensureEmptyClaudeRemoteSettings();
-  await Bun.write(
-    configPath,
-    `{
-      "channels": {
-        "secondParty": {
-          "sink": "otel-json",
-          "otel": {
-            "userEmail": "env:TEST_USER_EMAIL",
-            "userId": "env:TEST_USER_ID",
-            "resourceAttributes": {
-              "team": "platform"
+
+  try {
+    await Bun.write(
+      configPath,
+      `{
+        "channels": {
+          "secondParty": {
+            "sink": "otel-json",
+            "otel": {
+              "userEmail": "env:TEST_USER_EMAIL",
+              "userId": "env:TEST_USER_ID",
+              "organizationId": "env:TEST_ORG_ID",
+              "includeAccountUuid": true,
+              "accountUuid": "env:TEST_ACCOUNT_UUID",
+              "resourceAttributes": {
+                "team": "platform"
+              }
             }
           }
         }
-      }
-    }`,
-  );
+      }`,
+    );
 
-  const sink = createTelemetrySinkFromEnv({
-    CLAUDE_CONFIG_DIR: TEST_ENV.CLAUDE_CONFIG_DIR,
-    TEST_USER_EMAIL: "dev@company.test",
-    TEST_USER_ID: "u-123",
-    OPENCODE_CC_OTEL_CONFIG_PATH: configPath,
-    OPENCODE_CC_OTEL_2P_FILE_PATH: filePath,
-  });
-
-  await sink.publish([
-    {
-      kind: "metric",
-      channel: "secondParty",
-      name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.costUsage,
-      timestamp: "1970-01-01T00:00:00.001Z",
-      unit: "USD",
-      value: 1.25,
-      attributes: {
-        model: "claude-sonnet-4-6",
+    const sink = createTelemetrySinkFromEnv(
+      {
+        CLAUDE_CONFIG_DIR: TEST_ENV.CLAUDE_CONFIG_DIR,
+        TEST_USER_EMAIL: "dev@company.test",
+        TEST_USER_ID: "u-123",
+        TEST_ORG_ID: "org-123",
+        TEST_ACCOUNT_UUID: "acct-123",
+        OPENCODE_CC_OTEL_CONFIG_PATH: configPath,
+        OPENCODE_CC_OTEL_2P_FILE_PATH: "/tmp/unused.ndjson",
       },
-    },
-    {
-      kind: "event",
-      channel: "secondParty",
-      name: TELEMETRY_EVENT_NAMES.secondParty.userPrompt,
-      timestamp: "1970-01-01T00:00:00.002Z",
-      sessionId: "session-1",
-      attributes: {
-        prompt_length: 3,
+      {
+        createSecondPartyWriter: () => ({
+          write: (payload) => {
+            writes.push(payload);
+          },
+        }),
       },
-    },
-  ]);
+    );
 
-  const lines = (await Bun.file(filePath).text()).trim().split("\n");
-  expect(JSON.parse(lines[0] ?? "null")).toMatchObject({
-    resource_attributes: {
-      user_email: "dev@company.test",
-      userId: "u-123",
-      team: "platform",
-    },
-  });
-  expect(JSON.parse(lines[1] ?? "null")).toMatchObject({
-    attributes: {
-      user_email: "dev@company.test",
-      userId: "u-123",
-      team: "platform",
-    },
+    await sink.publish([
+      {
+        kind: "metric",
+        channel: "secondParty",
+        name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.costUsage,
+        timestamp: "1970-01-01T00:00:00.001Z",
+        unit: "USD",
+        value: 1.25,
+        attributes: {
+          model: "claude-sonnet-4-6",
+        },
+      },
+      {
+        kind: "event",
+        channel: "secondParty",
+        name: TELEMETRY_EVENT_NAMES.secondParty.userPrompt,
+        timestamp: "1970-01-01T00:00:00.002Z",
+        sessionId: "session-1",
+        attributes: {
+          prompt_length: 3,
+        },
+      },
+    ]);
+
+    expect(JSON.parse(writes[0] ?? "null")).toMatchObject({
+      resource_attributes: {
+        "app.version": "2.1.71",
+        "terminal.type": "cli",
+        "user.email": "dev@company.test",
+        "user.id": "u-123",
+        "organization.id": "org-123",
+        "user.account_uuid": "acct-123",
+        team: "platform",
+      },
+    });
+    expect(JSON.parse(writes[1] ?? "null")).toMatchObject({
+      body: "claude_code.tengu_input_prompt",
+      attributes: {
+        "event.name": "tengu_input_prompt",
+        "app.version": "2.1.71",
+        "terminal.type": "cli",
+        "user.email": "dev@company.test",
+        "user.id": "u-123",
+        "organization.id": "org-123",
+        "user.account_uuid": "acct-123",
+        team: "platform",
+      },
+    });
+  } finally {
+    await rm(configPath, { force: true });
+  }
+});
+
+test("extractClaudeLocalIdentity reads ~/.claude.json identity fields", () => {
+  expect(
+    extractClaudeLocalIdentity({
+      userID:
+        "3b80d32a8d55c44512d1cef6aa5a194ea939c976793a56ef3e74e4b07b5c6d8e",
+      oauthAccount: {
+        emailAddress: "jinhyeok@flex.team",
+        organizationUuid: "fc6d16ce-94c4-45a3-85e4-7d7872098723",
+        accountUuid: "3f63c970-497b-43d2-99a3-c07038fb89c3",
+      },
+    }),
+  ).toEqual({
+    userId: "3b80d32a8d55c44512d1cef6aa5a194ea939c976793a56ef3e74e4b07b5c6d8e",
+    userEmail: "jinhyeok@flex.team",
+    organizationId: "fc6d16ce-94c4-45a3-85e4-7d7872098723",
+    accountUuid: "3f63c970-497b-43d2-99a3-c07038fb89c3",
   });
 });
 

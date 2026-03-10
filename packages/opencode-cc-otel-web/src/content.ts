@@ -450,13 +450,19 @@ const secondPartyAttrs: RowDef[] = [
     name: "userEmail",
     value: "unset",
     description:
-      "Inject `user_email` for cost or usage rollups. Supports `env:NAME`.",
+      "Inject `user.email` for cost or usage rollups. Supports `env:NAME`. Defaults can come from `~/.claude.json`.",
   },
   {
     name: "userId",
     value: "unset",
     description:
-      "Inject `userId` for user-level dashboards. Supports `env:NAME`.",
+      "Inject `user.id` for user-level dashboards. Supports `env:NAME`. Defaults can come from `~/.claude.json`.",
+  },
+  {
+    name: "organizationId",
+    value: "oauthAccount.organizationUuid",
+    description:
+      "Inject `organization.id`. Defaults can come from `~/.claude.json` oauth account data.",
   },
   {
     name: "logsChannelId",
@@ -498,6 +504,12 @@ const secondPartyEnvVars: RowDef[] = [
     description: "Optional user id for telemetry.jsonc identity injection.",
   },
   {
+    name: "OPENCODE_CC_OTEL_ORGANIZATION_ID",
+    value: "unset",
+    description:
+      "Optional organization id override for telemetry.jsonc identity injection.",
+  },
+  {
     name: "OPENCODE_CC_OTEL_LOGS_CHANNEL_ID",
     value: "otel_3p_logs",
     description: "Fallback OTEL logs channel id.",
@@ -530,6 +542,7 @@ const secondPartyExample: CodeExample = {
     '        "serviceVersion": "env:OPENCODE_CC_OTEL_SERVICE_VERSION",',
     '        "userEmail": "env:OPENCODE_CC_OTEL_USER_EMAIL",',
     '        "userId": "env:OPENCODE_CC_OTEL_USER_ID",',
+    '        "organizationId": "env:OPENCODE_CC_OTEL_ORGANIZATION_ID",',
     '        "logsChannelId": "otel_3p_logs",',
     '        "metricsChannelId": "otel_3p_metrics",',
     '        "includeSessionId": true,',
@@ -571,7 +584,7 @@ const emittedOutputs: RowDef[] = [
     name: "2P logs",
     value: "otel-json / otlp-json",
     description:
-      "`claude_code.user_prompt`, `claude_code.tool_result`, `claude_code.api_request`, `claude_code.api_error`, `claude_code.tool_decision`.",
+      "`claude_code.tengu_input_prompt`, `claude_code.tengu_tool_use_success`, `claude_code.tengu_api_success`, `claude_code.tengu_api_error`, plus unmapped Claude-side events where needed.",
   },
   {
     name: "2P metrics",

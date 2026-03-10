@@ -40,6 +40,7 @@
         "serviceVersion": "env:OPENCODE_CC_OTEL_SERVICE_VERSION",
         "userEmail": "env:OPENCODE_CC_OTEL_USER_EMAIL",
         "userId": "env:OPENCODE_CC_OTEL_USER_ID",
+        "organizationId": "env:OPENCODE_CC_OTEL_ORGANIZATION_ID",
         "logsChannelId": "otel_3p_logs",
         "metricsChannelId": "otel_3p_metrics",
         "includeSessionId": true,
