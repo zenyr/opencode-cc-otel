@@ -44,6 +44,7 @@ const TEST_ENV = {
   XDG_CONFIG_HOME: "/tmp/opencode-cc-test-config",
   XDG_DATA_HOME: "/tmp/opencode-cc-test-data",
   CLAUDE_CONFIG_DIR: `/tmp/opencode-cc-test-claude-${Date.now()}`,
+  CLAUDE_MANAGED_SETTINGS_PATH: `/tmp/opencode-cc-test-managed-${Date.now()}.json`,
 };
 
 const withIsolatedClaudeConfig = (
@@ -465,6 +466,57 @@ test("loadTelemetryConfig reads Claude remote settings and merges local override
           includeAccountUuid: true,
           accountUuid: "acct-local",
           shutdownTimeoutMs: 10000,
+        },
+      },
+    },
+  });
+});
+
+test("loadTelemetryConfig falls back to Claude managed settings when remote has no telemetry", async () => {
+  const claudeConfigDir = `/tmp/opencode-claude-config-${Date.now()}`;
+  const managedSettingsPath = `/tmp/opencode-managed-settings-${Date.now()}.json`;
+
+  await mkdir(claudeConfigDir, { recursive: true });
+
+  await Bun.write(
+    `${claudeConfigDir}/remote-settings.json`,
+    JSON.stringify({}),
+  );
+
+  await Bun.write(
+    managedSettingsPath,
+    JSON.stringify({
+      policySettings: {
+        telemetry: {
+          enabled: true,
+          otlpEndpoint: "https://otel-collector.example.test",
+          otlpProtocol: "http/json",
+          headers: {
+            "X-Organization-Uuid": "00000000-0000-4000-8000-000000000000",
+          },
+        },
+      },
+    }),
+  );
+
+  expect(
+    loadTelemetryConfig({
+      CLAUDE_CONFIG_DIR: claudeConfigDir,
+      CLAUDE_MANAGED_SETTINGS_PATH: managedSettingsPath,
+      OPENCODE_CC_OTEL_CONFIG_PATH: missingTelemetryConfigPath(),
+    }),
+  ).toEqual({
+    channels: {
+      secondParty: {
+        enabled: true,
+        sink: "otlp-json",
+        transport: "http",
+        http: {
+          endpoint: "https://otel-collector.example.test",
+          protocol: "http/json",
+          headers: {
+            "X-Organization-Uuid": "00000000-0000-4000-8000-000000000000",
+          },
         },
       },
     },

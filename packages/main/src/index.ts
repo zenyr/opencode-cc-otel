@@ -513,6 +513,10 @@ const defaultClaudeRemoteSettingsPath = (env: EnvProvider): string => {
   return join(defaultClaudeConfigDir(env), CLAUDE_REMOTE_SETTINGS_FILE);
 };
 
+const defaultClaudeManagedSettingsPath = (env: EnvProvider): string => {
+  return env.CLAUDE_MANAGED_SETTINGS_PATH ?? CLAUDE_MANAGED_SETTINGS_PATH;
+};
+
 const defaultClaudeHomeConfigPath = (): string => {
   return join(homedir(), DEFAULT_CLAUDE_HOME_CONFIG_FILE);
 };
@@ -922,19 +926,17 @@ const mergeTelemetryConfig = (
 const loadClaudeTelemetryConfig = (
   env: EnvProvider,
 ): TelemetryConfigFile | undefined => {
-  const remoteConfig = readJsoncFileIfExists<unknown>(
-    defaultClaudeRemoteSettingsPath(env),
+  const remoteConfig = extractClaudeTelemetryConfig(
+    readJsoncFileIfExists<unknown>(defaultClaudeRemoteSettingsPath(env)),
   );
   if (remoteConfig) {
-    return extractClaudeTelemetryConfig(remoteConfig);
+    return remoteConfig;
   }
 
-  const managedConfig = readJsoncFileIfExists<unknown>(
-    CLAUDE_MANAGED_SETTINGS_PATH,
+  const managedConfig = extractClaudeTelemetryConfig(
+    readJsoncFileIfExists<unknown>(defaultClaudeManagedSettingsPath(env)),
   );
-  return managedConfig
-    ? extractClaudeTelemetryConfig(managedConfig)
-    : undefined;
+  return managedConfig;
 };
 
 const defaultSecondPartyNdjsonPath = (env: EnvProvider): string => {
