@@ -51,6 +51,7 @@ const buildSecondPartyMetricRecord = () => {
     channel: "secondParty",
     name: TELEMETRY_EVENT_NAMES.secondPartyMetrics.tokenUsage,
     nowMs: 2,
+    sessionId: "session-1",
     unit: "tokens",
     value: 123,
     attributes: {
@@ -252,6 +253,48 @@ test("createSecondPartyMetricEnvelope builds Claude-compatible OTEL metric shape
         data_points: [
           {
             attributes: {
+              type: "input",
+              model: "claude-sonnet-4-6",
+            },
+            value: 123,
+            timestamp: "1970-01-01T00:00:00.002Z",
+          },
+        ],
+      },
+    ],
+  });
+});
+
+test("createSecondPartyMetricEnvelope honors include flags", () => {
+  const metric = buildSecondPartyMetricRecord();
+  if (metric.kind !== "metric") {
+    throw new Error("metric req");
+  }
+
+  expect(
+    createSecondPartyMetricEnvelope(metric, {
+      serviceName: "claude-code",
+      serviceVersion: "2.1.69",
+      includeVersion: false,
+      includeSessionId: true,
+      includeAccountUuid: true,
+      accountUuid: "acct-1",
+    }),
+  ).toEqual({
+    resource_attributes: {
+      "channel.id": "otel_3p_metrics",
+      "service.name": "claude-code",
+      "account.uuid": "acct-1",
+    },
+    metrics: [
+      {
+        name: "claude_code.token.usage",
+        description: undefined,
+        unit: "tokens",
+        data_points: [
+          {
+            attributes: {
+              "session.id": "session-1",
               type: "input",
               model: "claude-sonnet-4-6",
             },

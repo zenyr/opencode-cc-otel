@@ -187,7 +187,7 @@ const supportSnapshot: FeatureCard[] = [
   {
     title: "Second-party (2P)",
     description:
-      "Send Claude-style OTEL JSON to your own tooling. Default local transport is append-only NDJSON file output.",
+      "Send Claude-style OTEL JSON or official OTLP JSON to your own tooling. Default local transport is append-only NDJSON file output.",
   },
   {
     title: "Third-party (3P)",
@@ -217,7 +217,7 @@ const overviewSupportHighlights: FeatureCard[] = [
 const overviewLimits = [
   "thirdParty forwarding is unsupported and must stay disabled.",
   "Full Claude parity is partial where the OpenCode plugin API does not expose source fields.",
-  "secondParty output is Claude-style OTEL JSON, not native OTEL SDK wiring.",
+  "secondParty output supports Claude-style OTEL JSON and official OTLP JSON export. Native OTEL SDK wiring still stays out of scope.",
   "Current active-time reporting is CLI command duration, not full user-active time.",
 ];
 
@@ -262,7 +262,7 @@ const quickStartExample: CodeExample = {
         "    },",
         '    "secondParty": {',
         '      "enabled": true,',
-        '      "sink": "otel-json",',
+        '      "sink": "otlp-json",',
         '      "transport": "file",',
         '      "file": {',
         '        "path": "env:OPENCODE_CC_OTEL_2P_FILE_PATH"',
@@ -335,6 +335,18 @@ const configPaths: RowDef[] = [
     name: "Override env",
     value: "optional",
     description: "`OPENCODE_CC_OTEL_CONFIG_PATH`",
+  },
+  {
+    name: "Claude policy cache",
+    value: "auto-detect",
+    description:
+      "`CLAUDE_CONFIG_DIR/remote-settings.json` or `~/.claude/remote-settings.json`",
+  },
+  {
+    name: "Claude managed settings",
+    value: "macOS fallback",
+    description:
+      "`/Library/Application Support/ClaudeCode/managed-settings.json`",
   },
 ];
 
@@ -414,6 +426,12 @@ const secondPartyTransports: RowDef[] = [
     description:
       "Direct stdout output. Use only when console delivery is intentionally desired.",
   },
+  {
+    name: "http",
+    value: "collector delivery",
+    description:
+      "POST official OTLP JSON payloads to an HTTP endpoint. Supports `http/json` protocol for policy-driven collector routing.",
+  },
 ];
 
 const secondPartyAttrs: RowDef[] = [
@@ -468,25 +486,28 @@ const secondPartyEnvVars: RowDef[] = [
 ];
 
 const secondPartyExample: CodeExample = {
-  title: "Second-party OTEL JSON channel",
+  title: "Second-party OTLP JSON channel",
   description:
-    "Use when downstream expects Claude-style OTEL JSON over explicit transport.",
+    "Use when downstream expects official OTLP JSON over explicit transport.",
   code: [
     "{",
     '  "$schema": "https://zenyr.github.io/opencode-cc-otel/schemas/telemetry.schema.json",',
     '  "channels": {',
     '    "secondParty": {',
     '      "enabled": true,',
-    '      "sink": "otel-json",',
-    '      "transport": "file",',
-    '      "file": {',
-    '        "path": "env:OPENCODE_CC_OTEL_2P_FILE_PATH"',
+    '      "sink": "otlp-json",',
+    '      "transport": "http",',
+    '      "http": {',
+    '        "endpoint": "https://otel-collector.example.test",',
+    '        "protocol": "http/json"',
     "      },",
     '      "otel": {',
     '        "serviceName": "claude-code",',
     '        "serviceVersion": "env:OPENCODE_CC_OTEL_SERVICE_VERSION",',
     '        "logsChannelId": "otel_3p_logs",',
     '        "metricsChannelId": "otel_3p_metrics",',
+    '        "includeSessionId": true,',
+    '        "includeVersion": true,',
     '        "resourceAttributes": {',
     '          "user.subscription_type": "team"',
     "        }",

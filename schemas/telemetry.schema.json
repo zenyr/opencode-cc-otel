@@ -92,8 +92,57 @@
             "type": "string"
           },
           "description": "Extra OTEL resource attrs for team or enterprise reporting."
+        },
+        "includeSessionId": {
+          "type": "boolean",
+          "description": "Include `session.id` in secondParty metric data point attrs when available."
+        },
+        "includeVersion": {
+          "type": "boolean",
+          "description": "Control `service.version` emission in secondParty metric resource attrs."
+        },
+        "includeAccountUuid": {
+          "type": "boolean",
+          "description": "Include `account.uuid` in secondParty metric resource attrs when `accountUuid` is set."
+        },
+        "accountUuid": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Explicit account UUID for secondParty metric resource attrs. Supports env:NAME."
+        },
+        "shutdownTimeoutMs": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Best-effort flush timeout used for secondParty shutdown handling and HTTP write timeout."
         }
       }
+    },
+    "secondPartyHttpConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "endpoint": {
+          "$ref": "#/$defs/httpsUrl"
+        },
+        "protocol": {
+          "type": "string",
+          "enum": ["http/json"],
+          "description": "SecondParty HTTP transport protocol. Current implementation supports `http/json` only."
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Optional extra HTTP headers. Values may use `env:NAME` indirection."
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Per-request timeout for secondParty HTTP transport."
+        }
+      },
+      "required": ["endpoint"]
     },
     "secondPartyFileConfig": {
       "type": "object",
@@ -133,16 +182,20 @@
           "type": "boolean"
         },
         "sink": {
-          "const": "otel-json",
-          "description": "SecondParty payload contract. Claude-style OTEL JSON logs and metrics."
+          "type": "string",
+          "enum": ["otel-json", "otlp-json"],
+          "description": "SecondParty payload/export contract. `otel-json` writes Claude-style OTEL JSON envelopes. `otlp-json` exports official OTLP JSON payloads."
         },
         "transport": {
           "type": "string",
-          "enum": ["file", "console"],
-          "description": "SecondParty delivery medium. `file` is the default local-safe path; `console` remains available for direct output."
+          "enum": ["file", "console", "http"],
+          "description": "SecondParty delivery medium. `file` is the default local-safe path; `console` remains available for direct output; `http` is required for `otlp-json` export."
         },
         "file": {
           "$ref": "#/$defs/secondPartyFileConfig"
+        },
+        "http": {
+          "$ref": "#/$defs/secondPartyHttpConfig"
         },
         "otel": {
           "$ref": "#/$defs/otelConfig"
@@ -196,16 +249,19 @@
         },
         "secondParty": {
           "enabled": true,
-          "sink": "otel-json",
-          "transport": "file",
-          "file": {
-            "path": "env:OPENCODE_CC_OTEL_2P_FILE_PATH"
+          "sink": "otlp-json",
+          "transport": "http",
+          "http": {
+            "endpoint": "https://otel-collector.example.test",
+            "protocol": "http/json"
           },
           "otel": {
             "serviceName": "claude-code",
             "serviceVersion": "env:OPENCODE_CC_OTEL_SERVICE_VERSION",
             "logsChannelId": "otel_3p_logs",
             "metricsChannelId": "otel_3p_metrics",
+            "includeSessionId": true,
+            "includeVersion": true,
             "resourceAttributes": {
               "user.subscription_type": "team"
             }

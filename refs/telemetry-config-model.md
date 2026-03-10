@@ -49,6 +49,7 @@ Examples:
 
 - `http` for Anthropic 1P batch payloads
 - `otel-json` for Claude-style 2P OTEL JSON logs and metrics
+- `otlp-json` for official OTLP JSON export payloads
 
 ### transport
 
@@ -82,8 +83,8 @@ Examples:
 Current public config supports:
 
 - `channels.firstParty.sink = "http"`
-- `channels.secondParty.sink = "otel-json"`
-- `channels.secondParty.transport = "file" | "console"`
+- `channels.secondParty.sink = "otel-json" | "otlp-json"`
+- `channels.secondParty.transport = "file" | "console" | "http"`
 - `channels.thirdParty.enabled = false` only
 
 Current implementation:
@@ -92,6 +93,7 @@ Current implementation:
 - 2P local default is `otel-json` over file transport
 - file transport writes append-only NDJSON
 - console remains available as an explicit transport
+- HTTP transport can carry either Claude-style `otel-json` compatibility output in future or official `otlp-json` export payloads; current OTLP path is `sink = "otlp-json"` over HTTP
 
 ## Preferred direction
 
@@ -105,11 +107,14 @@ Target examples:
 - `firstParty.sink = "http"`
 - `firstParty.transport = "http"`
 - `secondParty.sink = "otel-json"`
+- `secondParty.sink = "otlp-json"`
 - `secondParty.transport = "file"`
+- `secondParty.transport = "http"`
 
 For 2P local development, preferred default is:
 
 - sink: `otel-json`
+- sink: `otlp-json`
 - transport: `file`
 - file format: newline-delimited JSON (`ndjson`)
 
@@ -142,6 +147,15 @@ Recommended use cases:
 - bug reproduction
 - CI artifact capture
 - sidecar or collector pickup
+
+## Claude policy sources
+
+Second-party config can also be hydrated from Claude-managed settings sources when present:
+
+- `CLAUDE_CONFIG_DIR/remote-settings.json` or `~/.claude/remote-settings.json`
+- macOS managed settings: `/Library/Application Support/ClaudeCode/managed-settings.json`
+
+Repo runtime normalizes supported telemetry fields from those files into the repo config model.
 
 ## Derivation rules
 

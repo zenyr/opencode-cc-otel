@@ -17,6 +17,8 @@ type FetchLike = (
 export type HttpTelemetrySinkOptions = {
   endpoint: string;
   token?: string;
+  headers?: Record<string, string>;
+  timeoutMs?: number;
   maxAttempts?: number;
   backoffMs?: number;
   maxBackoffMs?: number;
@@ -55,6 +57,10 @@ export type SecondPartyOtelSinkOptions = {
   metricsChannelId?: string;
   nowSequence?: () => number;
   resourceAttributes?: Record<string, string>;
+  includeMetricSessionId?: boolean;
+  includeMetricVersion?: boolean;
+  includeMetricAccountUuid?: boolean;
+  accountUuid?: string;
 };
 
 export type SecondPartyLogEnvelope = {
@@ -90,6 +96,7 @@ const DEFAULT_OTEL_LOGS_CHANNEL_ID = "otel_3p_logs";
 const DEFAULT_OTEL_METRICS_CHANNEL_ID = "otel_3p_metrics";
 const DEFAULT_OTEL_SERVICE_NAME = "claude-code";
 const DEFAULT_OTEL_SERVICE_VERSION = "0.1.0";
+const OTLP_AGGREGATION_TEMPORALITY_CUMULATIVE = 2 as const;
 
 const FILE_LANGUAGE_MAP = new Map<string, string>([
   [".ts", "typescript"],
@@ -209,15 +216,39 @@ export const createSecondPartyMetricEnvelope = (
     serviceName?: string;
     serviceVersion?: string;
     resourceAttributes?: Record<string, string>;
+    includeSessionId?: boolean;
+    includeVersion?: boolean;
+    includeAccountUuid?: boolean;
+    accountUuid?: string;
   } = {},
 ): SecondPartyMetricEnvelope => {
+  const resourceAttributes: Record<string, string> = {
+    "channel.id": options.channelId ?? DEFAULT_OTEL_METRICS_CHANNEL_ID,
+    "service.name": options.serviceName ?? DEFAULT_OTEL_SERVICE_NAME,
+    ...options.resourceAttributes,
+  };
+
+  if (options.includeVersion !== false) {
+    resourceAttributes["service.version"] =
+      options.serviceVersion ?? DEFAULT_OTEL_SERVICE_VERSION;
+  }
+
+  if (options.includeAccountUuid && options.accountUuid) {
+    resourceAttributes["account.uuid"] = options.accountUuid;
+  }
+
+  const pointAttributes = Object.fromEntries(
+    Object.entries(metric.attributes).map(([key, value]) => {
+      return [key, stringifyAttributeValue(value)];
+    }),
+  );
+
+  if (options.includeSessionId && metric.sessionId) {
+    pointAttributes["session.id"] = metric.sessionId;
+  }
+
   return {
-    resource_attributes: {
-      "channel.id": options.channelId ?? DEFAULT_OTEL_METRICS_CHANNEL_ID,
-      "service.name": options.serviceName ?? DEFAULT_OTEL_SERVICE_NAME,
-      "service.version": options.serviceVersion ?? DEFAULT_OTEL_SERVICE_VERSION,
-      ...options.resourceAttributes,
-    },
+    resource_attributes: resourceAttributes,
     metrics: [
       {
         name: metric.name,
@@ -225,11 +256,7 @@ export const createSecondPartyMetricEnvelope = (
         unit: metric.unit,
         data_points: [
           {
-            attributes: Object.fromEntries(
-              Object.entries(metric.attributes).map(([key, value]) => {
-                return [key, stringifyAttributeValue(value)];
-              }),
-            ),
+            attributes: pointAttributes,
             value: metric.value,
             timestamp: metric.timestamp,
           },
@@ -259,6 +286,7 @@ const publishJsonWithRetry = async (
         method: "POST",
         headers: {
           "content-type": "application/json",
+          ...options.headers,
           ...(useAuth && options.token
             ? {
                 authorization: `Bearer ${options.token}`,
@@ -266,6 +294,10 @@ const publishJsonWithRetry = async (
             : {}),
         },
         body,
+        signal:
+          options.timeoutMs && options.timeoutMs > 0
+            ? AbortSignal.timeout(options.timeoutMs)
+            : undefined,
       });
 
       if (response.ok) {
@@ -511,6 +543,10 @@ export class SecondPartyOtelSink implements TelemetrySinkPort {
   #metricsChannelId: string;
   #nowSequence: () => number;
   #resourceAttributes: Record<string, string>;
+  #includeMetricSessionId: boolean;
+  #includeMetricVersion: boolean;
+  #includeMetricAccountUuid: boolean;
+  #accountUuid: string | undefined;
 
   constructor(options: SecondPartyOtelSinkOptions = {}) {
     this.#write = options.write ?? ((payload) => console.log(payload));
@@ -522,6 +558,10 @@ export class SecondPartyOtelSink implements TelemetrySinkPort {
       options.metricsChannelId ?? DEFAULT_OTEL_METRICS_CHANNEL_ID;
     this.#nowSequence = options.nowSequence ?? (() => Date.now());
     this.#resourceAttributes = options.resourceAttributes ?? {};
+    this.#includeMetricSessionId = options.includeMetricSessionId ?? false;
+    this.#includeMetricVersion = options.includeMetricVersion ?? true;
+    this.#includeMetricAccountUuid = options.includeMetricAccountUuid ?? false;
+    this.#accountUuid = options.accountUuid;
   }
 
   async publish(events: TelemetryRecord[]): Promise<void> {
@@ -538,6 +578,10 @@ export class SecondPartyOtelSink implements TelemetrySinkPort {
               serviceName: this.#serviceName,
               serviceVersion: this.#serviceVersion,
               resourceAttributes: this.#resourceAttributes,
+              includeSessionId: this.#includeMetricSessionId,
+              includeVersion: this.#includeMetricVersion,
+              includeAccountUuid: this.#includeMetricAccountUuid,
+              accountUuid: this.#accountUuid,
             }),
           ),
         );

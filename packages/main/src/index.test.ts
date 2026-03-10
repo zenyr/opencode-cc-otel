@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { mkdir } from "node:fs/promises";
 
 import type { PluginInput } from "@opencode-ai/plugin";
 import { InMemoryTelemetrySink } from "@zenyr/telemetry-adapters";
@@ -10,6 +11,7 @@ import {
 import {
   createOpencodeHooks,
   createTelemetrySinkFromEnv,
+  extractClaudeTelemetryConfig,
   loadTelemetryConfig,
   parseJsoncObject,
 } from "./index";
@@ -40,6 +42,21 @@ const TEST_ENV = {
   XDG_CACHE_HOME: "/tmp/opencode-cc-test-cache",
   XDG_CONFIG_HOME: "/tmp/opencode-cc-test-config",
   XDG_DATA_HOME: "/tmp/opencode-cc-test-data",
+  CLAUDE_CONFIG_DIR: `/tmp/opencode-cc-test-claude-${Date.now()}`,
+};
+
+const withIsolatedClaudeConfig = (
+  env: Record<string, string | undefined>,
+): Record<string, string | undefined> => {
+  return {
+    CLAUDE_CONFIG_DIR: TEST_ENV.CLAUDE_CONFIG_DIR,
+    ...env,
+  };
+};
+
+const ensureEmptyClaudeRemoteSettings = async (): Promise<void> => {
+  await mkdir(TEST_ENV.CLAUDE_CONFIG_DIR, { recursive: true });
+  await Bun.write(`${TEST_ENV.CLAUDE_CONFIG_DIR}/remote-settings.json`, "{}");
 };
 
 const buildPluginInput = (): PluginInput => {
@@ -259,6 +276,8 @@ test("parseJsoncObject parses JSONC without stripping URLs", () => {
 test("loadTelemetryConfig reads channel-aware JSONC config", async () => {
   const configPath = `/tmp/opencode-telemetry-channels-${Date.now()}.jsonc`;
 
+  await ensureEmptyClaudeRemoteSettings();
+
   await Bun.write(
     configPath,
     `{
@@ -292,9 +311,11 @@ test("loadTelemetryConfig reads channel-aware JSONC config", async () => {
   );
 
   expect(
-    loadTelemetryConfig({
-      OPENCODE_CC_OTEL_CONFIG_PATH: configPath,
-    }),
+    loadTelemetryConfig(
+      withIsolatedClaudeConfig({
+        OPENCODE_CC_OTEL_CONFIG_PATH: configPath,
+      }),
+    ),
   ).toEqual({
     channels: {
       firstParty: {
@@ -325,8 +346,130 @@ test("loadTelemetryConfig reads channel-aware JSONC config", async () => {
   });
 });
 
+test("extractClaudeTelemetryConfig maps Claude policy-like telemetry settings", () => {
+  expect(
+    extractClaudeTelemetryConfig({
+      policySettings: {
+        telemetry: {
+          enabled: true,
+          otlpEndpoint: "https://otel-collector.example.test",
+          otlpProtocol: "http/json",
+          resourceAttributes:
+            "service.name=claude,service.instance=flex,service.type=cli",
+          metricsIncludeSessionId: true,
+          metricsIncludeVersion: true,
+          metricsIncludeAccountUuid: true,
+          accountUuid: "acct-1",
+          shutdownTimeoutMs: 10000,
+        },
+      },
+    }),
+  ).toEqual({
+    channels: {
+      secondParty: {
+        enabled: true,
+        sink: "otlp-json",
+        transport: "http",
+        http: {
+          endpoint: "https://otel-collector.example.test",
+          protocol: "http/json",
+          timeoutMs: 10000,
+        },
+        otel: {
+          serviceName: "claude",
+          resourceAttributes: {
+            "service.name": "claude",
+            "service.instance": "flex",
+            "service.type": "cli",
+          },
+          includeSessionId: true,
+          includeVersion: true,
+          includeAccountUuid: true,
+          accountUuid: "acct-1",
+          shutdownTimeoutMs: 10000,
+        },
+      },
+    },
+  });
+});
+
+test("loadTelemetryConfig reads Claude remote settings and merges local override", async () => {
+  const claudeConfigDir = `/tmp/opencode-claude-config-${Date.now()}`;
+  const configPath = `/tmp/opencode-telemetry-merge-${Date.now()}.jsonc`;
+
+  await mkdir(claudeConfigDir, { recursive: true });
+
+  await Bun.write(
+    `${claudeConfigDir}/remote-settings.json`,
+    JSON.stringify({
+      policySettings: {
+        telemetry: {
+          enabled: true,
+          otlpEndpoint: "https://otel-collector.example.test",
+          otlpProtocol: "http/json",
+          resourceAttributes:
+            "service.name=claude,service.instance=flex,service.type=cli",
+          metricsIncludeSessionId: true,
+          shutdownTimeoutMs: 10000,
+        },
+      },
+    }),
+  );
+
+  await Bun.write(
+    configPath,
+    `{
+      "channels": {
+        "secondParty": {
+          "sink": "otlp-json",
+          "otel": {
+            "serviceVersion": "1.2.3",
+            "includeAccountUuid": true,
+            "accountUuid": "acct-local"
+          }
+        }
+      }
+    }`,
+  );
+
+  expect(
+    loadTelemetryConfig({
+      CLAUDE_CONFIG_DIR: claudeConfigDir,
+      OPENCODE_CC_OTEL_CONFIG_PATH: configPath,
+    }),
+  ).toEqual({
+    channels: {
+      secondParty: {
+        enabled: true,
+        sink: "otlp-json",
+        transport: "http",
+        http: {
+          endpoint: "https://otel-collector.example.test",
+          protocol: "http/json",
+          timeoutMs: 10000,
+        },
+        otel: {
+          serviceName: "claude",
+          serviceVersion: "1.2.3",
+          resourceAttributes: {
+            "service.name": "claude",
+            "service.instance": "flex",
+            "service.type": "cli",
+          },
+          includeSessionId: true,
+          includeAccountUuid: true,
+          accountUuid: "acct-local",
+          shutdownTimeoutMs: 10000,
+        },
+      },
+    },
+  });
+});
+
 test("createTelemetrySinkFromEnv builds fanout sink from 1P and 2P", async () => {
   const configPath = `/tmp/opencode-telemetry-fanout-${Date.now()}.jsonc`;
+
+  await ensureEmptyClaudeRemoteSettings();
 
   await Bun.write(
     configPath,
@@ -357,6 +500,7 @@ test("createTelemetrySinkFromEnv builds fanout sink from 1P and 2P", async () =>
   );
 
   const sink = createTelemetrySinkFromEnv({
+    CLAUDE_CONFIG_DIR: TEST_ENV.CLAUDE_CONFIG_DIR,
     OPENCODE_CC_OTEL_CONFIG_PATH: configPath,
   });
 
@@ -365,6 +509,8 @@ test("createTelemetrySinkFromEnv builds fanout sink from 1P and 2P", async () =>
 
 test("createTelemetrySinkFromEnv keeps 1P off by default in channel config", async () => {
   const configPath = `/tmp/opencode-telemetry-1p-default-off-${Date.now()}.jsonc`;
+
+  await ensureEmptyClaudeRemoteSettings();
 
   await Bun.write(
     configPath,
@@ -388,14 +534,18 @@ test("createTelemetrySinkFromEnv keeps 1P off by default in channel config", asy
   );
 
   const sink = createTelemetrySinkFromEnv({
+    CLAUDE_CONFIG_DIR: TEST_ENV.CLAUDE_CONFIG_DIR,
     OPENCODE_CC_OTEL_CONFIG_PATH: configPath,
   });
 
   expect(sink.constructor.name).toBe("NoopTelemetrySink");
 });
 
-test("createTelemetrySinkFromEnv still supports legacy env-only 1P opt-in", () => {
+test("createTelemetrySinkFromEnv still supports legacy env-only 1P opt-in", async () => {
+  await ensureEmptyClaudeRemoteSettings();
+
   const sink = createTelemetrySinkFromEnv({
+    CLAUDE_CONFIG_DIR: TEST_ENV.CLAUDE_CONFIG_DIR,
     OPENCODE_CC_OTEL_SINK: "http",
     OPENCODE_CC_OTEL_HTTP_ENDPOINT: "https://telemetry.example.test/anthropic",
   });
@@ -405,6 +555,8 @@ test("createTelemetrySinkFromEnv still supports legacy env-only 1P opt-in", () =
 
 test("createTelemetrySinkFromEnv rejects enabled thirdParty", async () => {
   const configPath = `/tmp/opencode-telemetry-third-party-${Date.now()}.jsonc`;
+
+  await ensureEmptyClaudeRemoteSettings();
 
   await Bun.write(
     configPath,
@@ -419,6 +571,7 @@ test("createTelemetrySinkFromEnv rejects enabled thirdParty", async () => {
 
   expect(() => {
     createTelemetrySinkFromEnv({
+      CLAUDE_CONFIG_DIR: TEST_ENV.CLAUDE_CONFIG_DIR,
       OPENCODE_CC_OTEL_CONFIG_PATH: configPath,
     });
   }).toThrow("thirdParty telemetry unsupported yet");
@@ -426,7 +579,11 @@ test("createTelemetrySinkFromEnv rejects enabled thirdParty", async () => {
 
 test("createTelemetrySinkFromEnv writes 2P otel-json to ndjson file by default", async () => {
   const filePath = `/tmp/opencode-telemetry-2p-${Date.now()}.ndjson`;
+
+  await ensureEmptyClaudeRemoteSettings();
+
   const sink = createTelemetrySinkFromEnv({
+    CLAUDE_CONFIG_DIR: TEST_ENV.CLAUDE_CONFIG_DIR,
     OPENCODE_CC_OTEL_2P_FILE_PATH: filePath,
   });
 

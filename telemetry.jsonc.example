@@ -26,18 +26,22 @@
     },
     "secondParty": {
       // Core repo goal: OTEL reporting for team / enterprise usage.
-      // Local-safe default is OTEL JSON over append-only NDJSON file transport.
+      // Use `otel-json` for Claude-style compat output or `otlp-json` for official OTLP JSON export.
+      // Claude policy files can also hydrate this channel automatically.
       "enabled": true,
-      "sink": "otel-json",
-      "transport": "file",
-      "file": {
-        "path": "env:OPENCODE_CC_OTEL_2P_FILE_PATH"
+      "sink": "otlp-json",
+      "transport": "http",
+      "http": {
+        "endpoint": "https://otel-collector.example.test",
+        "protocol": "http/json"
       },
       "otel": {
         "serviceName": "claude-code",
         "serviceVersion": "env:OPENCODE_CC_OTEL_SERVICE_VERSION",
         "logsChannelId": "otel_3p_logs",
         "metricsChannelId": "otel_3p_metrics",
+        "includeSessionId": true,
+        "includeVersion": true,
         "resourceAttributes": {
           "user.subscription_type": "team"
         }

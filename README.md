@@ -16,7 +16,7 @@ Reference semantics live in `refs/telemetry-config-model.md`. Treat this README 
 - `channel`: logical reporting lane by ownership and intent
 - `sink`: payload/export contract
 - `transport`: delivery medium
-- 2P config uses `secondParty.sink = "otel-json"` plus explicit `secondParty.transport`
+- 2P config uses `secondParty.sink = "otel-json" | "otlp-json"` plus explicit `secondParty.transport`
 - local-safe default is append-only NDJSON file transport
 
 ## Channel model
@@ -43,15 +43,17 @@ Reference semantics live in `refs/telemetry-config-model.md`. Treat this README 
 
 - Shared Claude-compatible event and metric contracts live in `packages/domain`
 - Application layer supports deterministic buffering + explicit flush
-- Adapters provide 1P Anthropic batch, 2P OTEL JSON, NDJSON file writer, console writer, in-memory, durable queue, and fanout sinks
+- Adapters provide 1P Anthropic batch, 2P Claude-style OTEL JSON, OTLP HTTP export, NDJSON file writer, console writer, in-memory, durable queue, and fanout sinks
 - Main package maps OpenCode hooks to supported Claude prompt/tool/command/API/diff telemetry paths
 - Monorepo verification covers domain, application, adapters, and main package contracts
 - Exact Claude parity is still partial where plugin API lacks source fields
 
 Current 2P recommendation:
 
-- prefer `otel-json` for payload contract
+- prefer `otel-json` for local inspectability
+- prefer `otlp-json` when downstream expects official OTLP JSON payloads
 - prefer `transport = "file"` for local and CI usage
+- use `transport = "http"` with `sink = "otlp-json"` when collector delivery must mirror Claude/team policy-driven OTLP routing
 - use `console` only when direct stdout output is explicitly wanted
 
 ## Runtime env
@@ -71,6 +73,12 @@ Current 2P recommendation:
 - `OPENCODE_CC_OTEL_FLUSH_INTERVAL_MS`: reserved policy value, default `0`
 
 Legacy env-only sink selection still works, but channel-aware JSONC config should be treated as the preferred direction.
+
+Additional config sources:
+
+- Claude remote policy cache: `CLAUDE_CONFIG_DIR/remote-settings.json` or `~/.claude/remote-settings.json`
+- Claude managed settings on macOS: `/Library/Application Support/ClaudeCode/managed-settings.json`
+- when present, telemetry-related Claude policy fields are normalized into repo second-party config
 
 ## Config file
 
@@ -94,6 +102,8 @@ Preferred channel config:
 - `channels.secondParty.sink`
 - `channels.secondParty.transport`
 - `channels.secondParty.file.path`
+- `channels.secondParty.http.endpoint`
+- `channels.secondParty.http.protocol`
 - `channels.secondParty.otel.*`
 - `channels.thirdParty.enabled`
 - `channels.thirdParty.enabled=false` only
@@ -102,7 +112,7 @@ Preferred channel config:
 SSOT note:
 
 - semantics and naming rules live in `refs/telemetry-config-model.md`
-- schema describes the current machine-valid contract: 2P `sink = "otel-json"` plus explicit transport
+- schema describes the current machine-valid contract: 2P `sink = "otel-json" | "otlp-json"` plus explicit transport
 
 ## Covered telemetry
 
@@ -128,7 +138,7 @@ Current emitted Claude-compatible outputs:
 - 1P sink retries transient failures with quadratic backoff: `baseMs * attempts^2`
 - 1P sink retries one `401` once without auth
 - Durable sink stores failed 1P batches on disk and replays them before new publish
-- 2P sink emits Claude-style OTEL JSON logs and metrics
+- 2P sink can emit Claude-style OTEL JSON logs and metrics or official OTLP JSON export payloads
 - 2P default transport appends one NDJSON payload per line to file
 - Channel-aware config can fan out to enabled `firstParty` and `secondParty` together
 - `thirdParty` stays unsupported and must remain disabled

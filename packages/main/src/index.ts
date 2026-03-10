@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Hooks, Plugin, PluginInput } from "@opencode-ai/plugin";
+import { OtlpHttpTelemetrySink } from "@zenyr/telemetry-adapter-otlp";
 import {
   Anthropic1PBatchSink,
   DurableTelemetrySink,
@@ -42,12 +43,24 @@ type TelemetryOtelConfig = {
   logsChannelId?: string;
   metricsChannelId?: string;
   resourceAttributes?: Record<string, string>;
+  includeSessionId?: boolean;
+  includeVersion?: boolean;
+  includeAccountUuid?: boolean;
+  accountUuid?: string;
+  shutdownTimeoutMs?: number;
 };
 
-type SecondPartyTransport = "file" | "console";
+type SecondPartyTransport = "file" | "console" | "http";
 
 type SecondPartyFileConfig = {
   path?: string;
+};
+
+type SecondPartyHttpConfig = {
+  endpoint?: string;
+  protocol?: string;
+  headers?: Record<string, string>;
+  timeoutMs?: number;
 };
 
 type FirstPartyChannelConfig = {
@@ -58,9 +71,10 @@ type FirstPartyChannelConfig = {
 
 type SecondPartyChannelConfig = {
   enabled?: boolean;
-  sink: "otel-json";
+  sink: "otel-json" | "otlp-json";
   transport?: SecondPartyTransport;
   file?: SecondPartyFileConfig;
+  http?: SecondPartyHttpConfig;
   otel?: TelemetryOtelConfig;
 };
 
@@ -113,6 +127,10 @@ const DEFAULT_2P_NDJSON_PATH_SEGMENTS = [
   "telemetry",
   "otel.ndjson",
 ];
+const DEFAULT_CLAUDE_CONFIG_DIR_SEGMENTS = [".claude"];
+const CLAUDE_REMOTE_SETTINGS_FILE = "remote-settings.json";
+const CLAUDE_MANAGED_SETTINGS_PATH =
+  "/Library/Application Support/ClaudeCode/managed-settings.json";
 
 const readString = (value: unknown): string | undefined => {
   return typeof value === "string" ? value : undefined;
@@ -296,6 +314,89 @@ export const parseJsoncObject = <T>(input: string): T => {
   return JSON.parse(stripTrailingCommas(stripJsonComments(input))) as T;
 };
 
+const readBoolean = (value: unknown): boolean | undefined => {
+  return typeof value === "boolean" ? value : undefined;
+};
+
+const isStringRecord = (value: unknown): value is Record<string, string> => {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.values(value).every((item) => typeof item === "string")
+  );
+};
+
+const normalizeKey = (value: string): string => {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+};
+
+const readJsoncFileIfExists = <T>(filePath: string): T | undefined => {
+  if (!existsSync(filePath)) {
+    return undefined;
+  }
+
+  try {
+    return parseJsoncObject<T>(readFileSync(filePath, "utf8"));
+  } catch {
+    return undefined;
+  }
+};
+
+const mergeStringRecords = (
+  base?: Record<string, string>,
+  override?: Record<string, string>,
+): Record<string, string> | undefined => {
+  if (!base && !override) {
+    return undefined;
+  }
+
+  return {
+    ...(base ?? {}),
+    ...(override ?? {}),
+  };
+};
+
+const parseResourceAttributes = (
+  value: unknown,
+): Record<string, string> | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  if (typeof value === "string") {
+    const entries = value
+      .split(",")
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0)
+      .map((part) => {
+        const separator = part.indexOf("=");
+        if (separator === -1) {
+          return undefined;
+        }
+
+        const key = part.slice(0, separator).trim();
+        const entryValue = part.slice(separator + 1).trim();
+        if (!key || !entryValue) {
+          return undefined;
+        }
+
+        return [key, entryValue] as const;
+      })
+      .filter(
+        (entry): entry is readonly [string, string] => entry !== undefined,
+      );
+
+    return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+  }
+
+  if (isStringRecord(value)) {
+    return value;
+  }
+
+  return undefined;
+};
+
 const resolveConfigValue = (
   env: EnvProvider,
   value: string | undefined,
@@ -314,6 +415,397 @@ const resolveConfigValue = (
 const defaultTelemetryConfigPath = (env: EnvProvider): string => {
   const configRoot = env.XDG_CONFIG_HOME ?? join(homedir(), ".config");
   return join(configRoot, ...DEFAULT_CONFIG_PATH_SEGMENTS);
+};
+
+const defaultClaudeConfigDir = (env: EnvProvider): string => {
+  return (
+    env.CLAUDE_CONFIG_DIR ??
+    join(homedir(), ...DEFAULT_CLAUDE_CONFIG_DIR_SEGMENTS)
+  );
+};
+
+const defaultClaudeRemoteSettingsPath = (env: EnvProvider): string => {
+  return join(defaultClaudeConfigDir(env), CLAUDE_REMOTE_SETTINGS_FILE);
+};
+
+type ClaudeTelemetryHints = {
+  enabled?: boolean;
+  endpoint?: string;
+  protocol?: string;
+  headers?: Record<string, string>;
+  serviceName?: string;
+  serviceVersion?: string;
+  resourceAttributes?: Record<string, string>;
+  includeSessionId?: boolean;
+  includeVersion?: boolean;
+  includeAccountUuid?: boolean;
+  accountUuid?: string;
+  shutdownTimeoutMs?: number;
+};
+
+const telemetryPathHint = (path: string[]): boolean => {
+  return path.some((segment) => {
+    return (
+      segment.includes("telemetry") ||
+      segment.includes("otel") ||
+      segment.includes("otlp") ||
+      segment.includes("metric") ||
+      segment.includes("policy")
+    );
+  });
+};
+
+const recordStringHint = (
+  hints: ClaudeTelemetryHints,
+  path: string[],
+  key: string,
+  value: string,
+): void => {
+  if (!value) {
+    return;
+  }
+
+  if (
+    key === "otelexporterotlpendpoint" ||
+    key === "exporterotlpendpoint" ||
+    key === "otlpendpoint" ||
+    ((key === "endpoint" || key === "url") && telemetryPathHint(path))
+  ) {
+    hints.endpoint ??= value;
+    return;
+  }
+
+  if (
+    key === "otelexporterotlpprotocol" ||
+    key === "exporterotlpprotocol" ||
+    key === "otlpprotocol" ||
+    (key === "protocol" && telemetryPathHint(path))
+  ) {
+    hints.protocol ??= value;
+    return;
+  }
+
+  if (key === "servicename") {
+    hints.serviceName ??= value;
+    return;
+  }
+
+  if (key === "serviceversion") {
+    hints.serviceVersion ??= value;
+    return;
+  }
+
+  if (key === "accountuuid") {
+    hints.accountUuid ??= value;
+  }
+};
+
+const recordBooleanHint = (
+  hints: ClaudeTelemetryHints,
+  path: string[],
+  key: string,
+  value: boolean,
+): void => {
+  if (
+    key === "claudecodeenabletelemetry" ||
+    key === "enabletelemetry" ||
+    key === "telemetryenabled" ||
+    ((key === "enabled" || key === "enable") && telemetryPathHint(path))
+  ) {
+    hints.enabled ??= value;
+    return;
+  }
+
+  if (
+    key === "otelmetricsincludesessionid" ||
+    key === "metricsincludesessionid"
+  ) {
+    hints.includeSessionId ??= value;
+    return;
+  }
+
+  if (key === "otelmetricsincludeversion" || key === "metricsincludeversion") {
+    hints.includeVersion ??= value;
+    return;
+  }
+
+  if (
+    key === "otelmetricsincludeaccountuuid" ||
+    key === "metricsincludeaccountuuid"
+  ) {
+    hints.includeAccountUuid ??= value;
+  }
+};
+
+const recordNumberHint = (
+  hints: ClaudeTelemetryHints,
+  path: string[],
+  key: string,
+  value: number,
+): void => {
+  if (
+    key === "claudecodeotelshutdowntimeoutms" ||
+    key === "otelshutdowntimeoutms" ||
+    key === "shutdowntimeoutms" ||
+    (key === "timeoutms" && telemetryPathHint(path))
+  ) {
+    hints.shutdownTimeoutMs ??= value;
+  }
+};
+
+const collectClaudeTelemetryHints = (
+  value: unknown,
+  hints: ClaudeTelemetryHints,
+  path: string[] = [],
+): void => {
+  const resourceAttributes = parseResourceAttributes(value);
+  const currentPath = path[path.length - 1];
+  if (
+    resourceAttributes &&
+    (currentPath === "resourceattributes" ||
+      currentPath === "otelresourceattributes")
+  ) {
+    hints.resourceAttributes = mergeStringRecords(
+      hints.resourceAttributes,
+      resourceAttributes,
+    );
+    hints.serviceName ??= resourceAttributes["service.name"];
+    hints.serviceVersion ??= resourceAttributes["service.version"];
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectClaudeTelemetryHints(item, hints, path);
+    }
+    return;
+  }
+
+  if (!value || typeof value !== "object") {
+    return;
+  }
+
+  for (const [rawKey, rawValue] of Object.entries(value)) {
+    const key = normalizeKey(rawKey);
+    const nextPath = [...path, key];
+
+    if (typeof rawValue === "string") {
+      recordStringHint(hints, nextPath, key, rawValue);
+    }
+
+    const booleanValue = readBoolean(rawValue);
+    if (booleanValue !== undefined) {
+      recordBooleanHint(hints, nextPath, key, booleanValue);
+    }
+
+    const numberValue = readNumber(rawValue);
+    if (numberValue !== undefined) {
+      recordNumberHint(hints, nextPath, key, numberValue);
+    }
+
+    if (key === "resourceattributes" || key === "otelresourceattributes") {
+      const parsed = parseResourceAttributes(rawValue);
+      if (parsed) {
+        hints.resourceAttributes = mergeStringRecords(
+          hints.resourceAttributes,
+          parsed,
+        );
+        hints.serviceName ??= parsed["service.name"];
+        hints.serviceVersion ??= parsed["service.version"];
+      }
+    }
+
+    if (
+      key === "headers" &&
+      isStringRecord(rawValue) &&
+      telemetryPathHint(nextPath)
+    ) {
+      hints.headers = mergeStringRecords(hints.headers, rawValue);
+    }
+
+    collectClaudeTelemetryHints(rawValue, hints, nextPath);
+  }
+};
+
+export const extractClaudeTelemetryConfig = (
+  input: unknown,
+): TelemetryConfigFile | undefined => {
+  const hints: ClaudeTelemetryHints = {};
+  collectClaudeTelemetryHints(input, hints);
+
+  const hasSecondPartySignal =
+    hints.enabled !== undefined ||
+    hints.endpoint !== undefined ||
+    hints.protocol !== undefined ||
+    hints.serviceName !== undefined ||
+    hints.serviceVersion !== undefined ||
+    hints.resourceAttributes !== undefined ||
+    hints.includeSessionId !== undefined ||
+    hints.includeVersion !== undefined ||
+    hints.includeAccountUuid !== undefined ||
+    hints.accountUuid !== undefined ||
+    hints.shutdownTimeoutMs !== undefined;
+
+  if (!hasSecondPartySignal) {
+    return undefined;
+  }
+
+  const secondParty: SecondPartyChannelConfig = {
+    enabled: hints.enabled ?? (hints.endpoint ? true : undefined),
+    sink: hints.endpoint ? "otlp-json" : "otel-json",
+  };
+
+  if (hints.endpoint) {
+    secondParty.transport = "http";
+    secondParty.http = {
+      endpoint: hints.endpoint,
+      protocol: hints.protocol ?? "http/json",
+      headers: hints.headers,
+      timeoutMs: hints.shutdownTimeoutMs,
+    };
+  }
+
+  const otel: TelemetryOtelConfig = {};
+  if (hints.serviceName) {
+    otel.serviceName = hints.serviceName;
+  }
+  if (hints.serviceVersion) {
+    otel.serviceVersion = hints.serviceVersion;
+  }
+  if (hints.resourceAttributes) {
+    otel.resourceAttributes = hints.resourceAttributes;
+  }
+  if (hints.includeSessionId !== undefined) {
+    otel.includeSessionId = hints.includeSessionId;
+  }
+  if (hints.includeVersion !== undefined) {
+    otel.includeVersion = hints.includeVersion;
+  }
+  if (hints.includeAccountUuid !== undefined) {
+    otel.includeAccountUuid = hints.includeAccountUuid;
+  }
+  if (hints.accountUuid) {
+    otel.accountUuid = hints.accountUuid;
+  }
+  if (hints.shutdownTimeoutMs !== undefined) {
+    otel.shutdownTimeoutMs = hints.shutdownTimeoutMs;
+  }
+  if (Object.keys(otel).length > 0) {
+    secondParty.otel = otel;
+  }
+
+  return {
+    channels: {
+      secondParty,
+    },
+  };
+};
+
+const mergeTelemetryConfig = (
+  base: TelemetryConfigFile | undefined,
+  override: TelemetryConfigFile | undefined,
+): TelemetryConfigFile | undefined => {
+  if (!base) {
+    return override;
+  }
+
+  if (!override) {
+    return base;
+  }
+
+  const firstParty = (() => {
+    const sink =
+      override.channels?.firstParty?.sink ?? base.channels?.firstParty?.sink;
+    if (!sink) {
+      return undefined;
+    }
+
+    return {
+      ...(base.channels?.firstParty ?? {}),
+      ...(override.channels?.firstParty ?? {}),
+      sink,
+    };
+  })();
+
+  const secondParty = (() => {
+    const sink =
+      override.channels?.secondParty?.sink ?? base.channels?.secondParty?.sink;
+    if (!sink) {
+      return undefined;
+    }
+
+    return {
+      ...(base.channels?.secondParty ?? {}),
+      ...(override.channels?.secondParty ?? {}),
+      sink,
+      file:
+        base.channels?.secondParty?.file || override.channels?.secondParty?.file
+          ? {
+              ...(base.channels?.secondParty?.file ?? {}),
+              ...(override.channels?.secondParty?.file ?? {}),
+            }
+          : undefined,
+      http:
+        base.channels?.secondParty?.http || override.channels?.secondParty?.http
+          ? {
+              ...(base.channels?.secondParty?.http ?? {}),
+              ...(override.channels?.secondParty?.http ?? {}),
+              headers: mergeStringRecords(
+                base.channels?.secondParty?.http?.headers,
+                override.channels?.secondParty?.http?.headers,
+              ),
+            }
+          : undefined,
+      otel:
+        base.channels?.secondParty?.otel || override.channels?.secondParty?.otel
+          ? {
+              ...(base.channels?.secondParty?.otel ?? {}),
+              ...(override.channels?.secondParty?.otel ?? {}),
+              resourceAttributes: mergeStringRecords(
+                base.channels?.secondParty?.otel?.resourceAttributes,
+                override.channels?.secondParty?.otel?.resourceAttributes,
+              ),
+            }
+          : undefined,
+    };
+  })();
+
+  return {
+    channels: {
+      ...(firstParty ? { firstParty } : {}),
+      ...(secondParty ? { secondParty } : {}),
+      ...(base.channels?.thirdParty || override.channels?.thirdParty
+        ? {
+            thirdParty: {
+              ...(base.channels?.thirdParty ?? {}),
+              ...(override.channels?.thirdParty ?? {}),
+            },
+          }
+        : {}),
+    },
+    ...((override.providerFilter ?? base.providerFilter)
+      ? {
+          providerFilter: override.providerFilter ?? base.providerFilter,
+        }
+      : {}),
+  };
+};
+
+const loadClaudeTelemetryConfig = (
+  env: EnvProvider,
+): TelemetryConfigFile | undefined => {
+  const remoteConfig = readJsoncFileIfExists<unknown>(
+    defaultClaudeRemoteSettingsPath(env),
+  );
+  if (remoteConfig) {
+    return extractClaudeTelemetryConfig(remoteConfig);
+  }
+
+  const managedConfig = readJsoncFileIfExists<unknown>(
+    CLAUDE_MANAGED_SETTINGS_PATH,
+  );
+  return managedConfig
+    ? extractClaudeTelemetryConfig(managedConfig)
+    : undefined;
 };
 
 const defaultSecondPartyNdjsonPath = (env: EnvProvider): string => {
@@ -378,6 +870,14 @@ const buildSecondPartyWriter = (
     };
   }
 
+  if (transport === "http") {
+    if (channel?.sink === "otlp-json") {
+      throw new Error("otlp-json sink req dedicated HTTP exporter");
+    }
+
+    throw new Error("otel-json http transport unsupported; use otlp-json sink");
+  }
+
   const writer = new NdjsonFileWriter({
     path: secondPartyFilePath(env, channel),
   });
@@ -390,18 +890,9 @@ export const loadTelemetryConfig = (
 ): TelemetryConfigFile | undefined => {
   const configPath =
     env.OPENCODE_CC_OTEL_CONFIG_PATH ?? defaultTelemetryConfigPath(env);
-
-  if (!existsSync(configPath)) {
-    return undefined;
-  }
-
-  try {
-    return parseJsoncObject<TelemetryConfigFile>(
-      readFileSync(configPath, "utf8"),
-    );
-  } catch {
-    return undefined;
-  }
+  const localConfig = readJsoncFileIfExists<TelemetryConfigFile>(configPath);
+  const claudeConfig = loadClaudeTelemetryConfig(env);
+  return mergeTelemetryConfig(claudeConfig, localConfig);
 };
 
 const withDurability = (
@@ -420,6 +911,42 @@ const withDurability = (
 
 const startReplay = (sink: ReplayableSink): Promise<void> => {
   return sink.flushQueued?.() ?? Promise.resolve();
+};
+
+const raceWithTimeout = async (
+  promise: Promise<void>,
+  timeoutMs: number | undefined,
+): Promise<void> => {
+  if (!timeoutMs || timeoutMs <= 0) {
+    await promise;
+    return;
+  }
+
+  await Promise.race([
+    promise,
+    Bun.sleep(timeoutMs).then(() => {
+      throw new Error(`Telemetry flush timeout after ${timeoutMs}ms`);
+    }),
+  ]);
+};
+
+const registerShutdownFlush = (
+  service: TelemetryService,
+  sink: ReplayableSink,
+  timeoutMs: number | undefined,
+): void => {
+  if (typeof process === "undefined" || typeof process.once !== "function") {
+    return;
+  }
+
+  process.once("beforeExit", () => {
+    void raceWithTimeout(
+      startReplay(sink).then(() => service.flush()),
+      timeoutMs,
+    ).catch(() => {
+      return;
+    });
+  });
 };
 
 const buildFirstPartySink = (
@@ -462,6 +989,52 @@ const buildSecondPartySink = (
     return undefined;
   }
 
+  if (channel?.sink === "otlp-json") {
+    const transport = channel.transport ?? "http";
+    if (transport !== "http") {
+      throw new Error("otlp-json sink requires http transport");
+    }
+
+    const endpoint = resolveConfigValue(env, channel.http?.endpoint);
+    if (!endpoint) {
+      throw new Error("secondParty otlp-json endpoint req");
+    }
+
+    const protocol =
+      resolveConfigValue(env, channel.http?.protocol) ?? "http/json";
+    if (protocol !== "http/json") {
+      throw new Error(`Unsupported secondParty http protocol: ${protocol}`);
+    }
+
+    const headers = channel.http?.headers
+      ? Object.fromEntries(
+          Object.entries(channel.http.headers).map(([key, value]) => {
+            return [key, resolveConfigValue(env, value) ?? value];
+          }),
+        )
+      : undefined;
+
+    return withDurability(
+      new OtlpHttpTelemetrySink({
+        endpoint,
+        headers,
+        timeoutMs: channel.http?.timeoutMs ?? channel.otel?.shutdownTimeoutMs,
+        serviceName:
+          resolveConfigValue(env, channel.otel?.serviceName) ??
+          env.OPENCODE_CC_OTEL_SERVICE_NAME,
+        serviceVersion:
+          resolveConfigValue(env, channel.otel?.serviceVersion) ??
+          env.OPENCODE_CC_OTEL_SERVICE_VERSION,
+        resourceAttributes: channel.otel?.resourceAttributes,
+        includeMetricSessionId: channel.otel?.includeSessionId,
+        includeMetricVersion: channel.otel?.includeVersion,
+        includeMetricAccountUuid: channel.otel?.includeAccountUuid,
+        accountUuid: resolveConfigValue(env, channel.otel?.accountUuid),
+      }),
+      env.OPENCODE_CC_OTEL_QUEUE_DIR,
+    );
+  }
+
   return new SecondPartyOtelSink({
     write: buildSecondPartyWriter(env, channel),
     serviceName:
@@ -477,6 +1050,10 @@ const buildSecondPartySink = (
       resolveConfigValue(env, channel?.otel?.metricsChannelId) ??
       env.OPENCODE_CC_OTEL_METRICS_CHANNEL_ID,
     resourceAttributes: channel?.otel?.resourceAttributes,
+    includeMetricSessionId: channel?.otel?.includeSessionId,
+    includeMetricVersion: channel?.otel?.includeVersion,
+    includeMetricAccountUuid: channel?.otel?.includeAccountUuid,
+    accountUuid: resolveConfigValue(env, channel?.otel?.accountUuid),
   });
 };
 
@@ -779,12 +1356,18 @@ export const createOpencodeHooks = (
   const pricing = options.pricing ?? new ModelPricingCache({ env });
   const sink = (options.sink ??
     createTelemetrySinkFromEnv(env)) as ReplayableSink;
+  const resolvedConfig = loadTelemetryConfig(env);
   const service = new TelemetryService({
     sink,
     clock,
     bufferPolicy: resolveBufferPolicy(env),
   });
   const ready = startReplay(sink);
+  registerShutdownFlush(
+    service,
+    sink,
+    resolvedConfig?.channels?.secondParty?.otel?.shutdownTimeoutMs,
+  );
   const toolCalls = new Map<string, ToolCallState>();
   const commandCalls = new Map<string, CommandCallState>();
   const seenCompletions: CompletionState = new Map();

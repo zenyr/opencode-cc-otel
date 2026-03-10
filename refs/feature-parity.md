@@ -43,7 +43,7 @@ So:
 | HTTP batching/retry | 1P batch retry/backoff | high | implemented with bounded retry/backoff |
 | disk queue + startup replay | failed batch durability | medium-high | implemented via durable queue wrapper + replay handshake |
 | Segment/Datadog side channels | side-channel forwarding | low | intentionally unsupported for now |
-| OTEL metrics/logs | 2P reporting path | medium-high | current repo emits Claude-compatible OTEL-style JSON envelopes, not native SDK exporter |
+| OTEL metrics/logs | 2P reporting path | high | current repo emits Claude-compatible OTEL-style JSON envelopes and can route via file, console, or HTTP transport; native SDK exporter parity still partial |
 | OTEL traces | model/tool traces | low | no trace/span lifecycle hooks for Claude-equivalent tracing |
 | org/trust/identity enrichment | org opt-out, trust, identity enrichment | low | plugin API does not expose these values |
 | remote config / feature flags / killswitch | GrowthBook, firstParty, sampling config | low | not exposed; must build separate config system |
@@ -104,6 +104,7 @@ Current repo status on delivery:
 
 - implemented: first-party batch envelope, 401 retry without auth on second attempt, disk-backed replay, fanout, channel-aware config, second-party OTEL-style JSON output
 - not implemented: dedicated Segment adapter, dedicated Datadog adapter, trace exporter
+- implemented: Claude policy file hydration for supported 2P telemetry settings, 2P OTLP JSON HTTP delivery, official OTLP payload typing, metric include flags for session/version/account UUID where source values exist
 
 ## What stays partial
 
