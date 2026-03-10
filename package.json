@@ -7,6 +7,7 @@
     "dev": "bun run dev:site",
     "build": "turbo run build",
     "build:site": "turbo run build --filter=opencode-cc-otel-web",
+    "capture:otlp": "bun ./packages/main/scripts/otlp-capture.ts",
     "dev:site": "bun ./packages/opencode-cc-otel-web/scripts/dev.ts",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",

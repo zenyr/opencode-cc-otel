@@ -76,6 +76,7 @@ export type OtlpExportLogsServiceRequest = {
 
 export type OtlpNumberDataPoint = {
   attributes?: OtlpKeyValue[];
+  startTimeUnixNano?: string;
   timeUnixNano: string;
   asInt?: string;
   asDouble?: number;
@@ -86,7 +87,7 @@ export type OtlpMetric = {
   description?: string;
   unit?: string;
   sum: {
-    aggregationTemporality: 2;
+    aggregationTemporality: 1;
     isMonotonic: boolean;
     dataPoints: OtlpNumberDataPoint[];
   };
@@ -117,7 +118,34 @@ const DEFAULT_HTTP_MAX_BACKOFF_MS = 30_000;
 const DEFAULT_OTEL_SERVICE_NAME = "claude-code";
 const DEFAULT_OTEL_SERVICE_VERSION = "0.1.0";
 const DEFAULT_TERMINAL_TYPE = "cli";
-const OTLP_AGGREGATION_TEMPORALITY_CUMULATIVE = 2 as const;
+const OTLP_AGGREGATION_TEMPORALITY_DELTA = 1 as const;
+const OTLP_METRIC_POINT_RESOURCE_KEYS = [
+  "user.id",
+  "app.version",
+  "organization.id",
+  "user.email",
+  "user.account_uuid",
+  "terminal.type",
+] as const;
+
+const OTLP_METRIC_DESCRIPTIONS: Record<string, string> = {
+  [TELEMETRY_EVENT_NAMES.secondPartyMetrics.activeTimeTotal]:
+    "Total active time in seconds",
+  [TELEMETRY_EVENT_NAMES.secondPartyMetrics.codeEditToolDecision]:
+    "Count of code editing tool permission decisions (accept/reject) for Edit, Write, and NotebookEdit tools",
+  [TELEMETRY_EVENT_NAMES.secondPartyMetrics.commitCount]:
+    "Count of git commits created from Claude Code",
+  [TELEMETRY_EVENT_NAMES.secondPartyMetrics.costUsage]:
+    "Cost of the Claude Code session",
+  [TELEMETRY_EVENT_NAMES.secondPartyMetrics.linesOfCodeCount]:
+    "Count of lines of code modified, with the 'type' attribute indicating whether lines were added or removed",
+  [TELEMETRY_EVENT_NAMES.secondPartyMetrics.pullRequestCount]:
+    "Count of pull requests created from Claude Code",
+  [TELEMETRY_EVENT_NAMES.secondPartyMetrics.sessionCount]:
+    "Count of CLI sessions started",
+  [TELEMETRY_EVENT_NAMES.secondPartyMetrics.tokenUsage]:
+    "Number of tokens used",
+};
 
 const claudeContractEventName = (name: string): string => {
   switch (name) {
@@ -183,6 +211,80 @@ const toOtlpKeyValues = (
       value: toOtlpAnyValue(value),
     };
   });
+};
+
+const toOtlpKeyValue = (
+  key: string,
+  value: TelemetryAttributeValue,
+): OtlpKeyValue => {
+  return {
+    key,
+    value: toOtlpAnyValue(value),
+  };
+};
+
+const pickMetricPointResourceAttributes = (
+  resourceAttributes: Record<string, TelemetryAttributeValue>,
+): Record<string, TelemetryAttributeValue> => {
+  const picked: Record<string, TelemetryAttributeValue> = {};
+
+  for (const key of OTLP_METRIC_POINT_RESOURCE_KEYS) {
+    const value = resourceAttributes[key];
+    if (value !== undefined) {
+      picked[key] = value;
+    }
+  }
+
+  return picked;
+};
+
+const createMetricPointAttributes = (options: {
+  pointBaseAttributes: Record<string, TelemetryAttributeValue>;
+  sessionId?: string;
+  metricAttributes: Record<string, TelemetryAttributeValue>;
+}): OtlpKeyValue[] => {
+  const attributes: OtlpKeyValue[] = [];
+
+  const pushIfDefined = (
+    key: string,
+    value: TelemetryAttributeValue | undefined,
+  ) => {
+    if (value !== undefined) {
+      attributes.push(toOtlpKeyValue(key, value));
+    }
+  };
+
+  pushIfDefined("user.id", options.pointBaseAttributes["user.id"]);
+  pushIfDefined("session.id", options.sessionId);
+  pushIfDefined("app.version", options.pointBaseAttributes["app.version"]);
+  pushIfDefined(
+    "organization.id",
+    options.pointBaseAttributes["organization.id"],
+  );
+  pushIfDefined("user.email", options.pointBaseAttributes["user.email"]);
+  pushIfDefined(
+    "user.account_uuid",
+    options.pointBaseAttributes["user.account_uuid"],
+  );
+  pushIfDefined("terminal.type", options.pointBaseAttributes["terminal.type"]);
+
+  for (const [key, value] of Object.entries(options.metricAttributes)) {
+    attributes.push(toOtlpKeyValue(key, value));
+  }
+
+  return attributes;
+};
+
+const normalizeOtlpMetricUnit = (
+  unit: string | undefined,
+): string | undefined => {
+  return unit === "{count}" ? "" : unit;
+};
+
+const resolveOtlpMetricDescription = (
+  metric: TelemetryMetricRecord,
+): string | undefined => {
+  return metric.description ?? OTLP_METRIC_DESCRIPTIONS[metric.name];
 };
 
 const normalizeHttpEndpoint = (endpoint: string): string => {
@@ -326,56 +428,67 @@ export const createOtlpMetricsRequest = (
     accountUuid?: string;
   } = {},
 ): OtlpExportMetricsServiceRequest => {
-  const otlpMetrics = metrics
-    .filter((record): record is TelemetryMetricRecord => {
+  const resourceAttributes = createOtlpResourceAttributes({
+    serviceName: options.serviceName,
+    serviceVersion: options.serviceVersion,
+    resourceAttributes: options.resourceAttributes,
+    includeVersion: options.includeVersion,
+    includeAccountUuid: options.includeAccountUuid,
+    accountUuid: options.accountUuid,
+  });
+  const pointBaseAttributes =
+    pickMetricPointResourceAttributes(resourceAttributes);
+  const metricsByKey = new Map<string, OtlpMetric>();
+
+  for (const metric of metrics.filter(
+    (record): record is TelemetryMetricRecord => {
       return record.channel === "secondParty" && record.kind === "metric";
-    })
-    .map((metric) => {
-      const attributes: Record<string, TelemetryAttributeValue> = {
-        ...metric.attributes,
-      };
+    },
+  )) {
+    const description = resolveOtlpMetricDescription(metric);
+    const unit = normalizeOtlpMetricUnit(metric.unit);
+    const key = JSON.stringify([
+      metric.name,
+      description ?? null,
+      unit ?? null,
+    ]);
+    const timestamp = toUnixTimeNano(metric.timestamp);
+    const point: OtlpNumberDataPoint = {
+      attributes: createMetricPointAttributes({
+        pointBaseAttributes,
+        sessionId: options.includeSessionId ? metric.sessionId : undefined,
+        metricAttributes: metric.attributes,
+      }),
+      startTimeUnixNano: timestamp,
+      timeUnixNano: timestamp,
+      asDouble: metric.value,
+    };
 
-      if (options.includeSessionId && metric.sessionId) {
-        attributes["session.id"] = metric.sessionId;
-      }
+    const existing = metricsByKey.get(key);
+    if (existing) {
+      existing.sum.dataPoints.push(point);
+      continue;
+    }
 
-      const point: OtlpNumberDataPoint = {
-        attributes: toOtlpKeyValues(attributes),
-        timeUnixNano: toUnixTimeNano(metric.timestamp),
-      };
-
-      if (Number.isInteger(metric.value)) {
-        point.asInt = String(metric.value);
-      } else {
-        point.asDouble = metric.value;
-      }
-
-      return {
-        name: metric.name,
-        description: metric.description,
-        unit: metric.unit,
-        sum: {
-          aggregationTemporality: OTLP_AGGREGATION_TEMPORALITY_CUMULATIVE,
-          isMonotonic: false,
-          dataPoints: [point],
-        },
-      };
+    metricsByKey.set(key, {
+      name: metric.name,
+      description,
+      unit,
+      sum: {
+        aggregationTemporality: OTLP_AGGREGATION_TEMPORALITY_DELTA,
+        isMonotonic: true,
+        dataPoints: [point],
+      },
     });
+  }
+
+  const otlpMetrics = [...metricsByKey.values()];
 
   return {
     resourceMetrics: [
       {
         resource: {
-          attributes: toOtlpKeyValues(
-            createOtlpResourceAttributes({
-              serviceName: options.serviceName,
-              serviceVersion: options.serviceVersion,
-              resourceAttributes: options.resourceAttributes,
-              includeVersion: options.includeVersion,
-              includeAccountUuid: options.includeAccountUuid,
-              accountUuid: options.accountUuid,
-            }),
-          ),
+          attributes: toOtlpKeyValues(resourceAttributes),
         },
         scopeMetrics: [
           {
