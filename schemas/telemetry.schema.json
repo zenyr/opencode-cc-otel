@@ -93,6 +93,16 @@
           },
           "description": "Extra OTEL resource attrs for team or enterprise reporting."
         },
+        "userEmail": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Inject `user_email` as a secondParty OTEL resource attr. Supports env:NAME."
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Inject `userId` as a secondParty OTEL resource attr. Supports env:NAME."
+        },
         "includeSessionId": {
           "type": "boolean",
           "description": "Include `session.id` in secondParty metric data point attrs when available."

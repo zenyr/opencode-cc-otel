@@ -43,6 +43,8 @@ type TelemetryOtelConfig = {
   logsChannelId?: string;
   metricsChannelId?: string;
   resourceAttributes?: Record<string, string>;
+  userEmail?: string;
+  userId?: string;
   includeSessionId?: boolean;
   includeVersion?: boolean;
   includeAccountUuid?: boolean;
@@ -402,6 +404,45 @@ const parseResourceAttributes = (
   }
 
   return undefined;
+};
+
+const resolveConfigStringRecord = (
+  env: EnvProvider,
+  value: Record<string, string> | undefined,
+): Record<string, string> | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => {
+      return [key, resolveConfigValue(env, item) ?? item];
+    }),
+  );
+};
+
+const resolveIdentityAttributes = (
+  env: EnvProvider,
+  otel: TelemetryOtelConfig | undefined,
+): Record<string, string> | undefined => {
+  const userEmail = resolveConfigValue(env, otel?.userEmail);
+  const userId = resolveConfigValue(env, otel?.userId);
+
+  return mergeStringRecords(
+    resolveConfigStringRecord(env, otel?.resourceAttributes),
+    {
+      ...(userEmail
+        ? {
+            user_email: userEmail,
+          }
+        : {}),
+      ...(userId
+        ? {
+            userId,
+          }
+        : {}),
+    },
+  );
 };
 
 const resolveConfigValue = (
@@ -1059,13 +1100,8 @@ const buildSecondPartySink = (
       throw new Error(`Unsupported secondParty http protocol: ${protocol}`);
     }
 
-    const headers = channel.http?.headers
-      ? Object.fromEntries(
-          Object.entries(channel.http.headers).map(([key, value]) => {
-            return [key, resolveConfigValue(env, value) ?? value];
-          }),
-        )
-      : undefined;
+    const headers = resolveConfigStringRecord(env, channel.http?.headers);
+    const resourceAttributes = resolveIdentityAttributes(env, channel.otel);
 
     return withDurability(
       new OtlpHttpTelemetrySink({
@@ -1079,7 +1115,7 @@ const buildSecondPartySink = (
           env,
           channel.otel?.serviceVersion,
         ),
-        resourceAttributes: channel.otel?.resourceAttributes,
+        resourceAttributes,
         includeMetricSessionId: channel.otel?.includeSessionId,
         includeMetricVersion: channel.otel?.includeVersion,
         includeMetricAccountUuid: channel.otel?.includeAccountUuid,
@@ -1088,6 +1124,8 @@ const buildSecondPartySink = (
       env.OPENCODE_CC_OTEL_QUEUE_DIR,
     );
   }
+
+  const resourceAttributes = resolveIdentityAttributes(env, channel?.otel);
 
   return new SecondPartyOtelSink({
     write: buildSecondPartyWriter(env, channel),
@@ -1104,7 +1142,7 @@ const buildSecondPartySink = (
     metricsChannelId:
       resolveConfigValue(env, channel?.otel?.metricsChannelId) ??
       env.OPENCODE_CC_OTEL_METRICS_CHANNEL_ID,
-    resourceAttributes: channel?.otel?.resourceAttributes,
+    resourceAttributes,
     includeMetricSessionId: channel?.otel?.includeSessionId,
     includeMetricVersion: channel?.otel?.includeVersion,
     includeMetricAccountUuid: channel?.otel?.includeAccountUuid,

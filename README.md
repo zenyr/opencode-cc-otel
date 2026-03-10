@@ -139,6 +139,7 @@ Current emitted Claude-compatible outputs:
 - 1P sink retries one `401` once without auth
 - Durable sink stores failed 1P batches on disk and replays them before new publish
 - 2P sink can emit Claude-style OTEL JSON logs and metrics or official OTLP JSON export payloads
+- static user identity enrichment can be injected from `telemetry.jsonc` via `channels.secondParty.otel.userEmail`, `userId`, or raw `resourceAttributes`
 - 2P default transport appends one NDJSON payload per line to file
 - Channel-aware config can fan out to enabled `firstParty` and `secondParty` together
 - `thirdParty` stays unsupported and must remain disabled

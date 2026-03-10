@@ -206,6 +206,10 @@ test("createSecondPartyLogEnvelope builds Claude-compatible OTEL log shape", () 
     sequence: 7,
     serviceName: "claude-code",
     serviceVersion: "2.1.69",
+    resourceAttributes: {
+      user_email: "dev@company.test",
+      userId: "u-123",
+    },
   });
 
   expect(envelope).toEqual({
@@ -217,6 +221,8 @@ test("createSecondPartyLogEnvelope builds Claude-compatible OTEL log shape", () 
       "event.sequence": "7",
       "service.name": "claude-code",
       "service.version": "2.1.69",
+      user_email: "dev@company.test",
+      userId: "u-123",
       "session.id": "session-1",
       tool_name: "edit",
       success: "true",

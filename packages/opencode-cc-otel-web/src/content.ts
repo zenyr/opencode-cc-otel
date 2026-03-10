@@ -442,8 +442,21 @@ const secondPartyAttrs: RowDef[] = [
   },
   {
     name: "serviceVersion",
-    value: "0.1.0",
-    description: "Override `service.version`. Supports `env:NAME`.",
+    value: "Claude Code version",
+    description:
+      "Override `service.version`. Supports `env:NAME`. Default falls back to detected Claude Code version.",
+  },
+  {
+    name: "userEmail",
+    value: "unset",
+    description:
+      "Inject `user_email` for cost or usage rollups. Supports `env:NAME`.",
+  },
+  {
+    name: "userId",
+    value: "unset",
+    description:
+      "Inject `userId` for user-level dashboards. Supports `env:NAME`.",
   },
   {
     name: "logsChannelId",
@@ -470,8 +483,19 @@ const secondPartyEnvVars: RowDef[] = [
   },
   {
     name: "OPENCODE_CC_OTEL_SERVICE_VERSION",
-    value: "0.1.0",
-    description: "Fallback service version for `otel-json` output.",
+    value: "claude --version",
+    description:
+      "Explicit service version override. Without it, runtime falls back to `CLAUDE_CODE_VERSION` or detected Claude Code version.",
+  },
+  {
+    name: "OPENCODE_CC_OTEL_USER_EMAIL",
+    value: "unset",
+    description: "Optional user email for telemetry.jsonc identity injection.",
+  },
+  {
+    name: "OPENCODE_CC_OTEL_USER_ID",
+    value: "unset",
+    description: "Optional user id for telemetry.jsonc identity injection.",
   },
   {
     name: "OPENCODE_CC_OTEL_LOGS_CHANNEL_ID",
@@ -488,7 +512,7 @@ const secondPartyEnvVars: RowDef[] = [
 const secondPartyExample: CodeExample = {
   title: "Second-party OTLP JSON channel",
   description:
-    "Use when downstream expects official OTLP JSON over explicit transport.",
+    "Use when downstream expects official OTLP JSON over explicit transport and user-level enrichment.",
   code: [
     "{",
     '  "$schema": "https://zenyr.github.io/opencode-cc-otel/schemas/telemetry.schema.json",',
@@ -504,6 +528,8 @@ const secondPartyExample: CodeExample = {
     '      "otel": {',
     '        "serviceName": "claude-code",',
     '        "serviceVersion": "env:OPENCODE_CC_OTEL_SERVICE_VERSION",',
+    '        "userEmail": "env:OPENCODE_CC_OTEL_USER_EMAIL",',
+    '        "userId": "env:OPENCODE_CC_OTEL_USER_ID",',
     '        "logsChannelId": "otel_3p_logs",',
     '        "metricsChannelId": "otel_3p_metrics",',
     '        "includeSessionId": true,',
@@ -543,13 +569,13 @@ const emittedOutputs: RowDef[] = [
   },
   {
     name: "2P logs",
-    value: "otel-json",
+    value: "otel-json / otlp-json",
     description:
       "`claude_code.user_prompt`, `claude_code.tool_result`, `claude_code.api_request`, `claude_code.api_error`, `claude_code.tool_decision`.",
   },
   {
     name: "2P metrics",
-    value: "otel-json",
+    value: "otel-json / otlp-json",
     description:
       "`session.count`, `lines_of_code.count`, `pull_request.count`, `commit.count`, `cost.usage`, `token.usage`, `code_edit_tool.decision`, `active_time.total`.",
   },

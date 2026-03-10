@@ -18,7 +18,7 @@ const SecondPartyPage = ({ page }: { page: PageMeta }) => {
         <SimpleTable rows={secondPartyTransports} valueLabel="Use" />
       </SectionCard>
 
-      <SectionCard title="OTEL JSON example">
+      <SectionCard title="Second-party config example">
         <Stack gap="md">
           <SimpleTable rows={secondPartyAttrs} valueLabel="Default" />
           <SimpleTable rows={secondPartyEnvVars} valueLabel="Default" />

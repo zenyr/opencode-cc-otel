@@ -4,8 +4,11 @@ import { fileURLToPath } from "node:url";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const packageDir = dirname(scriptDir);
+const repoRoot = dirname(dirname(packageDir));
 const sourceHtml = join(packageDir, "src", "index.html");
 const outdir = join(packageDir, "dist");
+const sourceSchema = join(repoRoot, "schemas", "telemetry.schema.json");
+const outSchemaDir = join(outdir, "schemas");
 
 const normalizeBasePath = (value: string) => {
   if (value === "/") {
@@ -34,6 +37,7 @@ const resolvePublicBasePath = () => {
 
 await rm(outdir, { force: true, recursive: true });
 await mkdir(outdir, { recursive: true });
+await mkdir(outSchemaDir, { recursive: true });
 
 const result = await Bun.build({
   entrypoints: [sourceHtml],
@@ -55,3 +59,4 @@ if (!result.success) {
 }
 
 await copyFile(join(outdir, "index.html"), join(outdir, "404.html"));
+await copyFile(sourceSchema, join(outSchemaDir, "telemetry.schema.json"));

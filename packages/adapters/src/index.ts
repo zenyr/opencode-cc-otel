@@ -181,6 +181,7 @@ export const createSecondPartyLogEnvelope = (
     sequence?: number;
     serviceName?: string;
     serviceVersion?: string;
+    resourceAttributes?: Record<string, string>;
   } = {},
 ): SecondPartyLogEnvelope => {
   const attributes: Record<string, string> = {
@@ -189,6 +190,7 @@ export const createSecondPartyLogEnvelope = (
     "event.timestamp": event.timestamp,
     "service.name": options.serviceName ?? DEFAULT_OTEL_SERVICE_NAME,
     "service.version": options.serviceVersion ?? DEFAULT_OTEL_SERVICE_VERSION,
+    ...options.resourceAttributes,
   };
 
   if (event.sessionId) {
@@ -595,6 +597,7 @@ export class SecondPartyOtelSink implements TelemetrySinkPort {
             sequence: this.#nowSequence(),
             serviceName: this.#serviceName,
             serviceVersion: this.#serviceVersion,
+            resourceAttributes: this.#resourceAttributes,
           }),
         ),
       );
