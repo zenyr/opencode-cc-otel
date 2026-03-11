@@ -637,7 +637,7 @@ const parityMatrix: ParityRow[] = [
     status: "High",
     current: "2P emitted",
     notes:
-      "`session.diff` maps to added and removed `lines_of_code.count` metrics.",
+      "`session.diff` maps to added and removed `lines_of_code.count` metrics, skips repeated in-session snapshots, and drops child/subagent sessions.",
   },
   {
     area: "Command telemetry",

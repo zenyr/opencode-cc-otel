@@ -67,15 +67,26 @@ const missingTelemetryConfigPath = () => {
   return `/tmp/opencode-missing-telemetry-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonc`;
 };
 
-const buildPluginInput = (): PluginInput => {
+const buildPluginInput = (
+  overrides: Partial<PluginInput> = {},
+): PluginInput => {
   return {
+    client: {
+      session: {
+        get: async () => ({ data: { id: "session-1" } }),
+      },
+    } as unknown as PluginInput["client"],
     directory: "/tmp/project",
     worktree: "/tmp/project",
+    ...overrides,
   } as PluginInput;
 };
 
-const createHooks = (options: HookOptions = {}) => {
-  return createOpencodeHooks(buildPluginInput(), {
+const createHooks = (
+  options: HookOptions = {},
+  pluginInputOverrides: Partial<PluginInput> = {},
+) => {
+  return createOpencodeHooks(buildPluginInput(pluginInputOverrides), {
     env: TEST_ENV,
     ...options,
   });
@@ -1359,6 +1370,45 @@ test("session.diff emits only delta lines-of-code metrics", async () => {
       value: 7,
     }),
   ]);
+});
+
+test("session.diff drops child session metrics", async () => {
+  const sink = new InMemoryTelemetrySink();
+  const hooks = createHooks(
+    {
+      sink,
+      clock: createScriptedClock(1, 2),
+    },
+    {
+      client: {
+        session: {
+          get: async () => ({
+            data: { id: "session-child", parentID: "session-root" },
+          }),
+        },
+      } as unknown as PluginInput["client"],
+    },
+  );
+
+  await hooks.event?.({
+    event: {
+      type: "session.diff",
+      properties: {
+        sessionID: "session-child",
+        diff: [
+          {
+            file: "src/main.ts",
+            additions: 5,
+            deletions: 3,
+            before: "",
+            after: "",
+          },
+        ],
+      },
+    },
+  } as EventInput);
+
+  expect(sink.drain()).toEqual([]);
 });
 
 test("command lifecycle emits first-party command event and second-party metrics", async () => {

@@ -124,6 +124,7 @@ type CommandCallState = {
 
 type CompletionState = Map<string, number>;
 type SessionDiffState = Map<string, { additions: number; deletions: number }>;
+type SessionParentState = Map<string, boolean>;
 type ReplayableSink = TelemetrySinkPort & {
   flushQueued?: () => Promise<void>;
 };
@@ -275,6 +276,44 @@ const diffDeltaTotals = (
   }
 
   return { additions, deletions };
+};
+
+const isChildSession = async (
+  input: PluginInput,
+  sessionId: string | undefined,
+  state: SessionParentState,
+): Promise<boolean> => {
+  if (!sessionId) {
+    return false;
+  }
+
+  const cached = state.get(sessionId);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const client = getProp(input, "client");
+  const sessionClient = getProp(client, "session");
+  const getSession = getProp(sessionClient, "get");
+
+  if (typeof getSession !== "function") {
+    state.set(sessionId, false);
+    return false;
+  }
+
+  try {
+    const result = await Reflect.apply(getSession, sessionClient, [
+      { path: { id: sessionId } },
+    ]);
+    const session = getProp(result, "data") ?? result;
+    const child =
+      readString(getProp(session, "parentID")) !== undefined ||
+      readString(getProp(session, "parentId")) !== undefined;
+    state.set(sessionId, child);
+    return child;
+  } catch {
+    return false;
+  }
 };
 
 const readInt = (value: string | undefined, fallback: number): number => {
@@ -1645,6 +1684,7 @@ export const createOpencodeHooks = (
   const commandCalls = new Map<string, CommandCallState>();
   const seenCompletions: CompletionState = new Map();
   const sessionDiffs = new Map<string, SessionDiffState>();
+  const sessionParents: SessionParentState = new Map();
   const providerAllowSet = resolveProviderFilter(env, options.providerFilter);
   // track last known provider per session for provider-agnostic hooks
   const activeProvider = new Map<string, string>();
@@ -1722,6 +1762,10 @@ export const createOpencodeHooks = (
       if (eventType(event) === "session.diff") {
         const properties = eventProperties(event);
         const sessionId = readString(getProp(properties, "sessionID"));
+
+        if (await isChildSession(input, sessionId, sessionParents)) {
+          return;
+        }
 
         if (
           providerAllowSet &&

@@ -123,7 +123,7 @@ Current supported mapping covers these signal families:
 - tools: `tool.execute.after`
 - permissions: `permission.ask`
 - commands/git ops: `command.execute.before`, `command.executed`
-- diff metrics: `session.diff`
+- diff metrics: `session.diff` from main sessions; child/subagent session diffs are dropped to avoid double counting
 
 Current emitted Claude-compatible outputs:
 
@@ -139,6 +139,7 @@ Current emitted Claude-compatible outputs:
 - 1P sink retries one `401` once without auth
 - Durable sink stores failed 1P batches on disk and replays them before new publish
 - 2P sink can emit Claude-style OTEL JSON logs and metrics or official OTLP JSON export payloads
+- `session.diff` LoC metrics dedupe repeated snapshots within a session and ignore child/subagent sessions
 - static user identity enrichment can be injected from `telemetry.jsonc` via `channels.secondParty.otel.userEmail`, `userId`, `organizationId`, or raw `resourceAttributes`; defaults can also come from `~/.claude.json`
 - 2P default transport appends one NDJSON payload per line to file
 - Channel-aware config can fan out to enabled `firstParty` and `secondParty` together

@@ -39,7 +39,7 @@ So:
 | command/git operation events | `tengu_input_command`, git op tracking | medium-high | `command.execute.before` + `event.command.executed`; current repo derives commit/PR metrics heuristically, failure detail still thin |
 | token/cost/API usage | `claude_code.token.usage`, `cost.usage`, `api_*` | medium-high | `event.message.updated` assistant msg has `cost`, `tokens`, success/error info; request attempt/provider transport detail still partial |
 | session/activity metrics | `session.count`, `active_time.total` | medium | session count is easy; current repo records active time only from command duration, not full user activity |
-| diff/LoC metrics | `lines_of_code.count` | medium-high | `session.diff` exposes enough totals; current repo emits added/removed metrics |
+| diff/LoC metrics | `lines_of_code.count` | medium-high | `session.diff` exposes enough totals; current repo emits added/removed metrics, dedupes repeated in-session snapshots, and drops child/subagent sessions |
 | HTTP batching/retry | 1P batch retry/backoff | high | implemented with bounded retry/backoff |
 | disk queue + startup replay | failed batch durability | medium-high | implemented via durable queue wrapper + replay handshake |
 | Segment/Datadog side channels | side-channel forwarding | low | intentionally unsupported for now |
@@ -59,7 +59,7 @@ Using plugin hooks + SDK events, an OpenCode plugin can capture most high-signal
 - tool start/end: `tool.execute.before`, `tool.execute.after`
 - permission outcome: `permission.ask`
 - command activity: `command.execute.before`, `event.command.executed`
-- diff/file changes: `session.diff`, message/session diff summaries
+- diff/file changes: `session.diff`, message/session diff summaries; child/subagent session diffs should be excluded from LoC reporting
 - runtime errors: assistant message error fields
 
 This is enough to recreate a solid high-signal `tengu_*`-style event stream. In this repo, Claude-compatible names and envelopes are already treated as the primary external contract for covered paths.
